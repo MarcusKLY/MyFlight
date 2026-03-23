@@ -15,12 +15,14 @@ final class Airport {
     var name: String
     var latitude: Double
     var longitude: Double
+    var timezone: String?
 
-    init(iataCode: String, name: String, latitude: Double, longitude: Double) {
+    init(iataCode: String, name: String, latitude: Double, longitude: Double, timezone: String? = nil) {
         self.iataCode = iataCode
         self.name = name
         self.latitude = latitude
         self.longitude = longitude
+        self.timezone = timezone
     }
 
     var coordinate: CLLocationCoordinate2D {
