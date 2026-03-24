@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var mapPosition: MapCameraPosition = .automatic
     @State private var showFlightList = false
     @State private var showAddFlightSheet = false
+    @State private var showFlightDetail = false
     @State private var mapStyleMode: FlightMapStyleMode = .mutedStandard
     @State private var activeLiveActivity: Activity<FlightStatusAttributes>?
     @State private var liveActivityProgress: Double = 0
@@ -102,6 +103,18 @@ struct ContentView: View {
                         .disabled(activeLiveActivity == nil)
 
                         Spacer()
+
+                        Button {
+                            showFlightDetail = true
+                        } label: {
+                            Label("Details", systemImage: "info.circle")
+                                .font(.caption)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.9))
+                                .foregroundColor(.blue)
+                                .clipShape(Capsule())
+                        }
                     }
                     .padding(.horizontal)
                 }
@@ -155,10 +168,27 @@ struct ContentView: View {
                 showFlightList = false
             }
         }
+        .sheet(isPresented: $showFlightDetail) {
+            if let selectedFlight {
+                FlightDetailView(flight: selectedFlight)
+            }
+        }
         .sheet(isPresented: $showAddFlightSheet) {
             AddFlightSheet(airports: FlightSeedData.defaultAirports(from: airports)) { draft in
-                let origin = upsertAirport(code: draft.originCode, fallbackName: draft.originName)
-                let destination = upsertAirport(code: draft.destinationCode, fallbackName: draft.destinationName)
+                let origin = upsertAirport(
+                    code: draft.originCode,
+                    fallbackName: draft.originName,
+                    latitude: draft.originLatitude,
+                    longitude: draft.originLongitude,
+                    timezone: draft.originTimezone
+                )
+                let destination = upsertAirport(
+                    code: draft.destinationCode,
+                    fallbackName: draft.destinationName,
+                    latitude: draft.destinationLatitude,
+                    longitude: draft.destinationLongitude,
+                    timezone: draft.destinationTimezone
+                )
 
                 let flight = Flight(
                     flightNumber: draft.flightNumber,
@@ -166,9 +196,20 @@ struct ContentView: View {
                     origin: origin,
                     destination: destination,
                     scheduledDeparture: draft.scheduledDeparture,
+                    estimatedDeparture: draft.estimatedDeparture,
                     actualDeparture: draft.actualDeparture,
+                    runwayDeparture: draft.runwayDeparture,
+                    runwayArrival: draft.runwayArrival,
+                    estimatedArrival: draft.estimatedArrival,
+                    scheduledArrival: draft.scheduledArrival,
+                    actualArrival: draft.actualArrival,
+                    departureGate: draft.departureGate,
+                    departureTerminal: draft.departureTerminal,
                     arrivalGate: draft.arrivalGate,
+                    arrivalTerminal: draft.arrivalTerminal,
                     baggageClaim: draft.baggageClaim,
+                    aircraftModel: draft.aircraftModel,
+                    tailNumber: draft.tailNumber,
                     flightStatus: draft.flightStatus
                 )
                 modelContext.insert(flight)
@@ -177,17 +218,32 @@ struct ContentView: View {
         }
     }
 
-    private func upsertAirport(code: String, fallbackName: String?) -> Airport {
+    private func upsertAirport(
+        code: String,
+        fallbackName: String?,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        timezone: String? = nil
+    ) -> Airport {
         let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         if let existing = airports.first(where: { $0.iataCode.uppercased() == normalizedCode }) {
+            // Enrich existing airport with freshly fetched data when available.
+            if let lat = latitude, let lon = longitude, existing.latitude == 0, existing.longitude == 0 {
+                existing.latitude = lat
+                existing.longitude = lon
+            }
+            if let tz = timezone, existing.timezone == nil {
+                existing.timezone = tz
+            }
             return existing
         }
 
         let airport = Airport(
             iataCode: normalizedCode,
             name: fallbackName?.nilIfEmpty ?? normalizedCode,
-            latitude: 0,
-            longitude: 0
+            latitude: latitude ?? 0,
+            longitude: longitude ?? 0,
+            timezone: timezone
         )
         modelContext.insert(airport)
         return airport
@@ -225,11 +281,28 @@ private struct AddFlightSheet: View {
     @State private var destinationCode = ""
     @State private var originName = ""
     @State private var destinationName = ""
+    @State private var originLatitude: Double?
+    @State private var originLongitude: Double?
+    @State private var destinationLatitude: Double?
+    @State private var destinationLongitude: Double?
+    @State private var originTimezone: String?
+    @State private var destinationTimezone: String?
     @State private var scheduledDeparture = Date()
+    @State private var estimatedDeparture: Date?
     @State private var includeActualDeparture = false
     @State private var actualDeparture = Date()
+    @State private var runwayDeparture: Date?
+    @State private var runwayArrival: Date?
+    @State private var estimatedArrival: Date?
+    @State private var scheduledArrival: Date?
+    @State private var actualArrival: Date?
+    @State private var departureGate = ""
+    @State private var departureTerminal = ""
     @State private var arrivalGate = ""
+    @State private var arrivalTerminal = ""
     @State private var baggageClaim = ""
+    @State private var aircraftModel = ""
+    @State private var tailNumber = ""
     @State private var flightStatus: FlightStatus = .onTime
     @State private var validationMessage: String?
     @State private var isLookingUp = false
@@ -321,11 +394,29 @@ private struct AddFlightSheet: View {
                     if includeActualDeparture {
                         DatePicker("Actual Departure", selection: $actualDeparture)
                     }
+                    if let arrival = scheduledArrival {
+                        LabeledContent("Scheduled Arrival") {
+                            Text("\(arrival, style: .date) \(arrival, style: .time)")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Departure") {
+                    TextField("Departure Gate", text: $departureGate)
+                    TextField("Departure Terminal", text: $departureTerminal)
                 }
 
                 Section("Arrival") {
                     TextField("Arrival Gate", text: $arrivalGate)
+                    TextField("Arrival Terminal", text: $arrivalTerminal)
                     TextField("Baggage Claim", text: $baggageClaim)
+                }
+
+                Section("Aircraft") {
+                    TextField("Aircraft Type (e.g. Boeing 777)", text: $aircraftModel)
+                    TextField("Tail Number", text: $tailNumber)
                 }
             }
             .navigationTitle("Add Flight")
@@ -362,10 +453,27 @@ private struct AddFlightSheet: View {
                                 destinationCode: normalizedDestinationCode,
                                 originName: matchedOrigin?.name ?? originName.nilIfEmpty,
                                 destinationName: matchedDestination?.name ?? destinationName.nilIfEmpty,
+                                originLatitude: originLatitude,
+                                originLongitude: originLongitude,
+                                destinationLatitude: destinationLatitude,
+                                destinationLongitude: destinationLongitude,
+                                originTimezone: originTimezone,
+                                destinationTimezone: destinationTimezone,
                                 scheduledDeparture: scheduledDeparture,
+                                estimatedDeparture: estimatedDeparture,
                                 actualDeparture: includeActualDeparture ? actualDeparture : nil,
+                                runwayDeparture: runwayDeparture,
+                                runwayArrival: runwayArrival,
+                                estimatedArrival: estimatedArrival,
+                                scheduledArrival: scheduledArrival,
+                                actualArrival: actualArrival,
+                                departureGate: departureGate.nilIfEmpty,
+                                departureTerminal: departureTerminal.nilIfEmpty,
                                 arrivalGate: arrivalGate.nilIfEmpty,
+                                arrivalTerminal: arrivalTerminal.nilIfEmpty,
                                 baggageClaim: baggageClaim.nilIfEmpty,
+                                aircraftModel: aircraftModel.nilIfEmpty,
+                                tailNumber: tailNumber.nilIfEmpty,
                                 flightStatus: flightStatus
                             )
                         )
@@ -406,18 +514,35 @@ private struct AddFlightSheet: View {
             airline = result.airline
             originCode = result.originIATACode
             destinationCode = result.destinationIATACode
+            originLatitude = result.originLatitude
+            originLongitude = result.originLongitude
+            destinationLatitude = result.destinationLatitude
+            destinationLongitude = result.destinationLongitude
+            originTimezone = result.originTimezone
+            destinationTimezone = result.destinationTimezone
             scheduledDeparture = result.scheduledDeparture
+            estimatedDeparture = result.estimatedDeparture
             actualDeparture = result.actualDeparture ?? actualDeparture
             includeActualDeparture = result.actualDeparture != nil
+            runwayDeparture = result.runwayDeparture
+            runwayArrival = result.runwayArrival
+            estimatedArrival = result.estimatedArrival
+            scheduledArrival = result.scheduledArrival
+            actualArrival = result.actualArrival
+            departureGate = result.departureGate ?? ""
+            departureTerminal = result.departureTerminal ?? ""
             arrivalGate = result.arrivalGate ?? ""
+            arrivalTerminal = result.arrivalTerminal ?? ""
             baggageClaim = result.baggageClaim ?? ""
+            aircraftModel = result.aircraftModel ?? ""
+            tailNumber = result.tailNumber ?? ""
             flightStatus = result.status
 
             if matchedOrigin == nil {
-                originName = result.originIATACode
+                originName = result.originName ?? result.originIATACode
             }
             if matchedDestination == nil {
-                destinationName = result.destinationIATACode
+                destinationName = result.destinationName ?? result.destinationIATACode
             }
         } catch {
             validationMessage = error.localizedDescription
@@ -432,10 +557,27 @@ private struct FlightDraft {
     let destinationCode: String
     let originName: String?
     let destinationName: String?
+    let originLatitude: Double?
+    let originLongitude: Double?
+    let destinationLatitude: Double?
+    let destinationLongitude: Double?
+    let originTimezone: String?
+    let destinationTimezone: String?
     let scheduledDeparture: Date
+    let estimatedDeparture: Date?
     let actualDeparture: Date?
+    let runwayDeparture: Date?
+    let runwayArrival: Date?
+    let estimatedArrival: Date?
+    let scheduledArrival: Date?
+    let actualArrival: Date?
+    let departureGate: String?
+    let departureTerminal: String?
     let arrivalGate: String?
+    let arrivalTerminal: String?
     let baggageClaim: String?
+    let aircraftModel: String?
+    let tailNumber: String?
     let flightStatus: FlightStatus
 }
 

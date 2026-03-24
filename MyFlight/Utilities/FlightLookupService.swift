@@ -12,10 +12,29 @@ struct FlightLookupResult {
     let airline: String
     let originIATACode: String
     let destinationIATACode: String
+    let originName: String?
+    let destinationName: String?
+    let originLatitude: Double?
+    let originLongitude: Double?
+    let destinationLatitude: Double?
+    let destinationLongitude: Double?
+    let originTimezone: String?
+    let destinationTimezone: String?
     let scheduledDeparture: Date
+    let estimatedDeparture: Date?
     let actualDeparture: Date?
+    let runwayDeparture: Date?
+    let runwayArrival: Date?
+    let estimatedArrival: Date?
+    let scheduledArrival: Date?
+    let actualArrival: Date?
+    let departureGate: String?
+    let departureTerminal: String?
     let arrivalGate: String?
+    let arrivalTerminal: String?
     let baggageClaim: String?
+    let aircraftModel: String?
+    let tailNumber: String?
     let status: FlightStatus
 }
 
@@ -37,38 +56,42 @@ enum FlightLookupError: LocalizedError {
 }
 
 enum FlightLookupService {
-    // Example provider endpoint using AviationStack-style payload.
+    /// Looks up a flight using the AeroDataBox API (via RapidAPI).
+    /// Requires `FLIGHT_API_KEY` in Info.plist set to your RapidAPI key.
     static func lookup(flightNumber: String, date: Date) async throws -> FlightLookupResult {
         guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "FLIGHT_API_KEY") as? String,
               !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw FlightLookupError.missingAPIKey
         }
 
-        var components = URLComponents(string: "https://api.aviationstack.com/v1/flights")
+        // AeroDataBox expects the flight number without internal spaces (e.g. "CX886" not "CX 886").
+        let normalizedNumber = flightNumber
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
         let dateString = DateFormatter.apiDate.string(from: date)
-        components?.queryItems = [
-            URLQueryItem(name: "access_key", value: apiKey),
-            URLQueryItem(name: "flight_iata", value: flightNumber),
-            URLQueryItem(name: "flight_date", value: dateString)
-        ]
 
-        guard let url = components?.url else {
+        guard let url = URL(string: "https://aerodatabox.p.rapidapi.com/flights/number/\(normalizedNumber)/\(dateString)") else {
             throw FlightLookupError.invalidResponse
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(apiKey, forHTTPHeaderField: "X-RapidAPI-Key")
+        request.setValue("aerodatabox.p.rapidapi.com", forHTTPHeaderField: "X-RapidAPI-Host")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
             throw FlightLookupError.invalidResponse
         }
 
-        let decoded = try JSONDecoder().decode(AviationStackResponse.self, from: data)
-        guard let first = decoded.data.first else {
+        let decoded = try JSONDecoder().decode([AeroFlightItem].self, from: data)
+        guard let first = decoded.first else {
             throw FlightLookupError.noFlightFound
         }
 
         let status: FlightStatus
-        switch first.flightStatus.lowercased() {
-        case "cancelled":
+        switch (first.status ?? "").lowercased() {
+        case "cancelled", "cancelleduncertain":
             status = .cancelled
         case "delayed":
             status = .delayed
@@ -76,75 +99,122 @@ enum FlightLookupService {
             status = .onTime
         }
 
-        let parsedScheduled = DateFormatter.apiDateTime.date(from: first.departure.scheduled ?? "") ?? date
-        let parsedActual = DateFormatter.apiDateTime.date(from: first.departure.actual ?? "")
+        let scheduledDep = parseAeroDate(first.departure?.scheduledTime?.utc) ?? date
+        let estimatedDep = parseAeroDate(first.departure?.estimatedTime?.utc)
+        let actualDep = parseAeroDate(first.departure?.actualTime?.utc)
+        let runwayDep = parseAeroDate(first.departure?.runwayTime?.utc)
+        let runwayArr = parseAeroDate(first.arrival?.runwayTime?.utc)
+        let estimatedArr = parseAeroDate(first.arrival?.estimatedTime?.utc)
+        let scheduledArr = parseAeroDate(first.arrival?.scheduledTime?.utc)
+        let actualArr = parseAeroDate(first.arrival?.actualTime?.utc)
 
         return FlightLookupResult(
-            flightNumber: first.flight.iata ?? flightNumber,
-            airline: first.airline.name ?? "Unknown Airline",
-            originIATACode: first.departure.iata ?? "",
-            destinationIATACode: first.arrival.iata ?? "",
-            scheduledDeparture: parsedScheduled,
-            actualDeparture: parsedActual,
-            arrivalGate: first.arrival.gate,
-            baggageClaim: first.arrival.baggage,
+            flightNumber: first.number ?? flightNumber,
+            airline: first.airline?.name ?? "Unknown Airline",
+            originIATACode: first.departure?.airport?.iata ?? "",
+            destinationIATACode: first.arrival?.airport?.iata ?? "",
+            originName: first.departure?.airport?.name,
+            destinationName: first.arrival?.airport?.name,
+            originLatitude: first.departure?.airport?.location?.lat,
+            originLongitude: first.departure?.airport?.location?.lon,
+            destinationLatitude: first.arrival?.airport?.location?.lat,
+            destinationLongitude: first.arrival?.airport?.location?.lon,
+            originTimezone: first.departure?.airport?.timeZone,
+            destinationTimezone: first.arrival?.airport?.timeZone,
+            scheduledDeparture: scheduledDep,
+            estimatedDeparture: estimatedDep,
+            actualDeparture: actualDep,
+            runwayDeparture: runwayDep,
+            runwayArrival: runwayArr,
+            estimatedArrival: estimatedArr,
+            scheduledArrival: scheduledArr,
+            actualArrival: actualArr,
+            departureGate: first.departure?.gate,
+            departureTerminal: first.departure?.terminal,
+            arrivalGate: first.arrival?.gate,
+            arrivalTerminal: first.arrival?.terminal,
+            baggageClaim: first.arrival?.baggageBelt,
+            aircraftModel: first.aircraft?.model,
+            tailNumber: first.aircraft?.reg,
             status: status
         )
     }
-}
 
-private struct AviationStackResponse: Decodable {
-    let data: [AviationFlightItem]
-}
-
-private struct AviationFlightItem: Decodable {
-    let flightStatus: String
-    let airline: Airline
-    let flight: FlightInfo
-    let departure: AirportEvent
-    let arrival: AirportEvent
-
-    enum CodingKeys: String, CodingKey {
-        case flightStatus = "flight_status"
-        case airline
-        case flight
-        case departure
-        case arrival
+    private static func parseAeroDate(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        // AeroDataBox UTC times are formatted as "2024-01-15 01:45Z"
+        return DateFormatter.aeroDateTime.date(from: string)
     }
 }
 
-private struct Airline: Decodable {
+// MARK: - AeroDataBox response models
+
+private struct AeroFlightItem: Decodable {
+    let number: String?
+    let status: String?
+    let airline: AeroAirline?
+    let aircraft: AeroAircraft?
+    let departure: AeroEndpoint?
+    let arrival: AeroEndpoint?
+}
+
+private struct AeroAirline: Decodable {
     let name: String?
 }
 
-private struct FlightInfo: Decodable {
-    let iata: String?
+private struct AeroAircraft: Decodable {
+    let reg: String?
+    let model: String?
 }
 
-private struct AirportEvent: Decodable {
-    let iata: String?
-    let scheduled: String?
-    let actual: String?
+private struct AeroEndpoint: Decodable {
+    let airport: AeroAirport?
+    let scheduledTime: AeroTime?
+    let estimatedTime: AeroTime?
+    let actualTime: AeroTime?
+    let runwayTime: AeroTime?
+    let terminal: String?
     let gate: String?
-    let baggage: String?
+    let baggageBelt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case airport, terminal, gate, baggageBelt
+        case scheduledTime, estimatedTime, actualTime, runwayTime
+    }
+}
+
+private struct AeroAirport: Decodable {
+    let iata: String?
+    let name: String?
+    let timeZone: String?
+    let location: AeroLocation?
+}
+
+private struct AeroLocation: Decodable {
+    let lat: Double?
+    let lon: Double?
+}
+
+private struct AeroTime: Decodable {
+    let utc: String?
+    let local: String?
 }
 
 private extension DateFormatter {
     static let apiDate: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
     }()
 
-    static let apiDateTime: DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
-        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-
-        return dateFormatter
+    /// Parses AeroDataBox UTC timestamps: "2024-01-15 01:45Z"
+    static let aeroDateTime: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "yyyy-MM-dd HH:mmX"
+        return f
     }()
 }
