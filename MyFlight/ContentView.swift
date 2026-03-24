@@ -388,7 +388,7 @@ private struct AddFlightSheet: View {
                     }
                     if let arrival = scheduledArrival {
                         LabeledContent("Scheduled Arrival") {
-                            Text(arrival, style: .date) + Text(" ") + Text(arrival, style: .time)
+                            Text("\(arrival, style: .date) \(arrival, style: .time)")
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)

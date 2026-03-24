@@ -6,61 +6,63 @@
 	objectVersion = 77;
 	objects = {
 
-	/* Begin PBXBuildFile section */
-			A1B2C3012F72A00100B00A01 /* MyFlightLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3042F72A00100B00A04 /* MyFlightLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-	/* End PBXBuildFile section */
+/* Begin PBXBuildFile section */
+		A1B2C3012F72A00100B00A01 /* MyFlightLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3042F72A00100B00A04 /* MyFlightLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
 
-	/* Begin PBXContainerItemProxy section */
-			A1B2C3022F72A00100B00A02 /* PBXContainerItemProxy */ = {
-				isa = PBXContainerItemProxy;
-				containerPortal = EE4441242F71D855003B00A7 /* Project object */;
-				proxyType = 1;
-				remoteGlobalIDString = A1B2C3072F72A00100B00A07;
-				remoteInfo = MyFlightLiveActivity;
-			};
-	/* End PBXContainerItemProxy section */
+/* Begin PBXContainerItemProxy section */
+		A1B2C3022F72A00100B00A02 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EE4441242F71D855003B00A7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B2C3072F72A00100B00A07;
+			remoteInfo = MyFlightLiveActivity;
+		};
+/* End PBXContainerItemProxy section */
 
-	/* Begin PBXCopyFilesBuildPhase section */
-			A1B2C3032F72A00100B00A03 /* Embed App Extensions */ = {
-				isa = PBXCopyFilesBuildPhase;
-				buildActionMask = 2147483647;
-				dstPath = "";
-				dstSubfolderSpec = 13;
-				files = (
-					A1B2C3012F72A00100B00A01 /* MyFlightLiveActivity.appex in Embed App Extensions */,
-				);
-				name = "Embed App Extensions";
-				runOnlyForDeploymentPostprocessing = 0;
-			};
-	/* End PBXCopyFilesBuildPhase section */
+/* Begin PBXCopyFilesBuildPhase section */
+		A1B2C3032F72A00100B00A03 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1B2C3012F72A00100B00A01 /* MyFlightLiveActivity.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A1B2C3042F72A00100B00A04 /* MyFlightLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MyFlightLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B7A100001122334455667701 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Debug.xcconfig; sourceTree = "<group>"; };
+		B7A100001122334455667702 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Release.xcconfig; sourceTree = "<group>"; };
 		EE44412C2F71D855003B00A7 /* MyFlight.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyFlight.app; sourceTree = BUILT_PRODUCTS_DIR; };
-			A1B2C3042F72A00100B00A04 /* MyFlightLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MyFlightLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A1B2C3052F72A00100B00A05 /* MyFlightLiveActivity */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MyFlightLiveActivity;
+			sourceTree = "<group>";
+		};
 		EE44412E2F71D855003B00A7 /* MyFlight */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = MyFlight;
 			sourceTree = "<group>";
 		};
-			A1B2C3052F72A00100B00A05 /* MyFlightLiveActivity */ = {
-				isa = PBXFileSystemSynchronizedRootGroup;
-				path = MyFlightLiveActivity;
-				sourceTree = "<group>";
-			};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		EE4441292F71D855003B00A7 /* Frameworks */ = {
+		A1B2C3062F72A00100B00A06 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A1B2C3062F72A00100B00A06 /* Frameworks */ = {
+		EE4441292F71D855003B00A7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -75,6 +77,8 @@
 			children = (
 				EE44412E2F71D855003B00A7 /* MyFlight */,
 				A1B2C3052F72A00100B00A05 /* MyFlightLiveActivity */,
+				B7A100001122334455667701 /* Debug.xcconfig */,
+				B7A100001122334455667702 /* Release.xcconfig */,
 				EE44412D2F71D855003B00A7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -91,6 +95,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A1B2C3072F72A00100B00A07 /* MyFlightLiveActivity */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C30D2F72A00100B00A0D /* Build configuration list for PBXNativeTarget "MyFlightLiveActivity" */;
+			buildPhases = (
+				A1B2C3092F72A00100B00A09 /* Sources */,
+				A1B2C3062F72A00100B00A06 /* Frameworks */,
+				A1B2C3082F72A00100B00A08 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A1B2C3052F72A00100B00A05 /* MyFlightLiveActivity */,
+			);
+			name = MyFlightLiveActivity;
+			packageProductDependencies = (
+			);
+			productName = MyFlightLiveActivity;
+			productReference = A1B2C3042F72A00100B00A04 /* MyFlightLiveActivity.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		EE44412B2F71D855003B00A7 /* MyFlight */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = EE4441372F71D858003B00A7 /* Build configuration list for PBXNativeTarget "MyFlight" */;
@@ -115,28 +141,6 @@
 			productReference = EE44412C2F71D855003B00A7 /* MyFlight.app */;
 			productType = "com.apple.product-type.application";
 		};
-		A1B2C3072F72A00100B00A07 /* MyFlightLiveActivity */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A1B2C30D2F72A00100B00A0D /* Build configuration list for PBXNativeTarget "MyFlightLiveActivity" */;
-			buildPhases = (
-				A1B2C3092F72A00100B00A09 /* Sources */,
-				A1B2C3062F72A00100B00A06 /* Frameworks */,
-				A1B2C3082F72A00100B00A08 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				A1B2C3052F72A00100B00A05 /* MyFlightLiveActivity */,
-			);
-			name = MyFlightLiveActivity;
-			packageProductDependencies = (
-			);
-			productName = MyFlightLiveActivity;
-			productReference = A1B2C3042F72A00100B00A04 /* MyFlightLiveActivity.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -147,10 +151,10 @@
 				LastSwiftUpdateCheck = 2630;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
-					EE44412B2F71D855003B00A7 = {
+					A1B2C3072F72A00100B00A07 = {
 						CreatedOnToolsVersion = 26.3;
 					};
-					A1B2C3072F72A00100B00A07 = {
+					EE44412B2F71D855003B00A7 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -176,14 +180,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		EE44412A2F71D855003B00A7 /* Resources */ = {
+		A1B2C3082F72A00100B00A08 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A1B2C3082F72A00100B00A08 /* Resources */ = {
+		EE44412A2F71D855003B00A7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -193,14 +197,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		EE4441282F71D855003B00A7 /* Sources */ = {
+		A1B2C3092F72A00100B00A09 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A1B2C3092F72A00100B00A09 /* Sources */ = {
+		EE4441282F71D855003B00A7 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -218,6 +222,60 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A1B2C30B2F72A00100B00A0B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = MyFlightLiveActivity/MyFlightLiveActivity.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = BF3PLRNQLV;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "MyFlightLiveActivity-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = MarcusK.MyFlight.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1B2C30C2F72A00100B00A0C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = MyFlightLiveActivity/MyFlightLiveActivity.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = BF3PLRNQLV;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "MyFlightLiveActivity-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = MarcusK.MyFlight.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		EE4441352F71D858003B00A7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -341,6 +399,7 @@
 		};
 		EE4441382F71D858003B00A7 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B7A100001122334455667701 /* Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -349,12 +408,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BF3PLRNQLV;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MyFlight-Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -374,6 +429,7 @@
 		};
 		EE4441392F71D858003B00A7 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B7A100001122334455667702 /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -382,12 +438,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BF3PLRNQLV;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MyFlight-Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -405,63 +457,18 @@
 			};
 			name = Release;
 		};
-		A1B2C30B2F72A00100B00A0B /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = MyFlightLiveActivity/MyFlightLiveActivity.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = BF3PLRNQLV;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MyFlightLiveActivity/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = MarcusK.MyFlight.LiveActivity;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		A1B2C30C2F72A00100B00A0C /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = MyFlightLiveActivity/MyFlightLiveActivity.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = BF3PLRNQLV;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MyFlightLiveActivity/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = MarcusK.MyFlight.LiveActivity;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A1B2C30D2F72A00100B00A0D /* Build configuration list for PBXNativeTarget "MyFlightLiveActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C30B2F72A00100B00A0B /* Debug */,
+				A1B2C30C2F72A00100B00A0C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		EE4441272F71D855003B00A7 /* Build configuration list for PBXProject "MyFlight" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -476,15 +483,6 @@
 			buildConfigurations = (
 				EE4441382F71D858003B00A7 /* Debug */,
 				EE4441392F71D858003B00A7 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		A1B2C30D2F72A00100B00A0D /* Build configuration list for PBXNativeTarget "MyFlightLiveActivity" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A1B2C30B2F72A00100B00A0B /* Debug */,
-				A1B2C30C2F72A00100B00A0C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
