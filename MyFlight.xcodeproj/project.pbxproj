@@ -36,8 +36,8 @@
 
 /* Begin PBXFileReference section */
 		A1B2C3042F72A00100B00A04 /* MyFlightLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MyFlightLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		B7A100001122334455667701 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Debug.xcconfig; sourceTree = "<group>"; };
-		B7A100001122334455667702 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Release.xcconfig; sourceTree = "<group>"; };
+		B7A100001122334455667701 /* Config/Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Debug.xcconfig; sourceTree = "<group>"; };
+		B7A100001122334455667702 /* Config/Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Release.xcconfig; sourceTree = "<group>"; };
 		EE44412C2F71D855003B00A7 /* MyFlight.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyFlight.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -77,8 +77,8 @@
 			children = (
 				EE44412E2F71D855003B00A7 /* MyFlight */,
 				A1B2C3052F72A00100B00A05 /* MyFlightLiveActivity */,
-				B7A100001122334455667701 /* Debug.xcconfig */,
-				B7A100001122334455667702 /* Release.xcconfig */,
+				B7A100001122334455667701 /* Config/Debug.xcconfig */,
+				B7A100001122334455667702 /* Config/Release.xcconfig */,
 				EE44412D2F71D855003B00A7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -123,13 +123,11 @@
 			buildPhases = (
 				EE4441282F71D855003B00A7 /* Sources */,
 				EE4441292F71D855003B00A7 /* Frameworks */,
-				A1B2C3032F72A00100B00A03 /* Embed App Extensions */,
 				EE44412A2F71D855003B00A7 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				A1B2C30A2F72A00100B00A0A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				EE44412E2F71D855003B00A7 /* MyFlight */,
@@ -399,7 +397,7 @@
 		};
 		EE4441382F71D858003B00A7 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B7A100001122334455667701 /* Debug.xcconfig */;
+			baseConfigurationReference = B7A100001122334455667701 /* Config/Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -409,7 +407,7 @@
 				DEVELOPMENT_TEAM = BF3PLRNQLV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MyFlight-Info.plist;
+				INFOPLIST_FILE = "MyFlight-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -429,7 +427,7 @@
 		};
 		EE4441392F71D858003B00A7 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B7A100001122334455667702 /* Release.xcconfig */;
+			baseConfigurationReference = B7A100001122334455667702 /* Config/Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -439,7 +437,7 @@
 				DEVELOPMENT_TEAM = BF3PLRNQLV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MyFlight-Info.plist;
+				INFOPLIST_FILE = "MyFlight-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

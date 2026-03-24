@@ -2,7 +2,7 @@
 //  FlightDetailView.swift
 //  MyFlight
 //
-//  Created by Kam Long Yin on 23/3/2026.
+//  Created by Kam Long Yin on 2026-03-23.
 //
 
 import SwiftUI
@@ -98,12 +98,29 @@ struct FlightDetailView: View {
             }
 
             statusBadge
+
+            if let depDelay = flight.departureDelayMinutes, let arrDelay = flight.arrivalDelayMinutes {
+                HStack(spacing: 10) {
+                    delayPill(icon: depDelay >= 0 ? "airplane.departure" : "arrow.down.left", text: "Dep \(depDelay >= 0 ? "+\(depDelay)m" : "-\(-depDelay)m")", isDelayed: depDelay > 0)
+                    delayPill(icon: arrDelay >= 0 ? "airplane.arrival" : "arrow.down.right", text: "Arr \(arrDelay >= 0 ? "+\(arrDelay)m" : "-\(-arrDelay)m")", isDelayed: arrDelay > 0)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 6)
+            } else if let depDelay = flight.departureDelayMinutes {
+                delayPill(icon: depDelay >= 0 ? "airplane.departure" : "arrow.down.left", text: "Dep \(depDelay >= 0 ? "+\(depDelay)m" : "-\(-depDelay)m")", isDelayed: depDelay > 0)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+            } else if let arrDelay = flight.arrivalDelayMinutes {
+                delayPill(icon: arrDelay >= 0 ? "airplane.arrival" : "arrow.down.right", text: "Arr \(arrDelay >= 0 ? "+\(arrDelay)m" : "-\(-arrDelay)m")", isDelayed: arrDelay > 0)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+            }
         }
         .padding(.top, 20)
     }
 
     private var statusBadge: some View {
-        Text(flight.flightStatus.rawValue)
+        Text(flightStatusText)
             .font(.caption)
             .fontWeight(.semibold)
             .padding(.horizontal, 14)
@@ -111,6 +128,38 @@ struct FlightDetailView: View {
             .background(statusColor.opacity(0.15))
             .foregroundStyle(statusColor)
             .clipShape(Capsule())
+    }
+
+    private var flightStatusText: String {
+        if let actualArrival = flight.actualArrival {
+            if let scheduledArrival = flight.scheduledArrival, actualArrival > scheduledArrival {
+                return "Arrived Late"
+            }
+            return "Arrived"
+        }
+
+        switch flight.flightStatus {
+        case .onTime: return "On Time"
+        case .delayed: return "Delayed"
+        case .arrived: return "Arrived"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
+    private var statusColor: Color {
+        if let actualArrival = flight.actualArrival {
+            if let scheduledArrival = flight.scheduledArrival, actualArrival > scheduledArrival {
+                return Color.orange
+            }
+            return Color.green
+        }
+
+        switch flight.flightStatus {
+        case .onTime: return Color.green
+        case .delayed: return Color.orange
+        case .arrived: return Color.green
+        case .cancelled: return Color.red
+        }
     }
 
     // MARK: - Live Progress Bar
@@ -171,7 +220,8 @@ struct FlightDetailView: View {
                 )
             }
 
-            if let dep = flight.actualDeparture {
+            let departureActual = flight.actualDeparture ?? flight.runwayDeparture
+            if let dep = departureActual, !isSameMinute(dep, flight.scheduledDeparture) {
                 timelineConnector()
                 timelineEvent(
                     icon: "door.left.hand.open",
@@ -183,15 +233,15 @@ struct FlightDetailView: View {
                 )
             }
 
-            if let takeoff = flight.runwayDeparture {
+            if let takeoff = flight.runwayDeparture ?? flight.actualDeparture, !isSameMinute(takeoff, flight.scheduledDeparture) {
                 timelineConnector()
                 timelineEvent(
                     icon: "airplane.departure",
-                    label: "Takeoff",
+                    label: flight.runwayDeparture != nil ? "Takeoff" : "Takeoff (actual)",
                     date: takeoff,
                     timezone: flight.origin.timezone,
-                    style: .actual,
-                    delayMinutes: nil
+                    style: takeoff > flight.scheduledDeparture ? .delayed : .actual,
+                    delayMinutes: minuteDelta(takeoff, from: flight.scheduledDeparture)
                 )
             }
         }
@@ -206,44 +256,6 @@ struct FlightDetailView: View {
                 timezone: flight.destination.timezone
             )
 
-            if let landing = flight.runwayArrival {
-                timelineEvent(
-                    icon: "airplane.arrival",
-                    label: "Landing",
-                    date: landing,
-                    timezone: flight.destination.timezone,
-                    style: .actual,
-                    delayMinutes: nil
-                )
-                timelineConnector()
-            }
-
-            if let gateIn = flight.actualArrival {
-                let scheduled = flight.scheduledArrival
-                timelineEvent(
-                    icon: "door.right.hand.open",
-                    label: "Gate In",
-                    date: gateIn,
-                    timezone: flight.destination.timezone,
-                    style: scheduled.map { gateIn > $0 ? .delayed : .actual } ?? .actual,
-                    delayMinutes: scheduled.map { minuteDelta(gateIn, from: $0) } ?? nil
-                )
-                timelineConnector()
-            } else if let est = flight.estimatedArrival {
-                let scheduled = flight.scheduledArrival
-                if scheduled.map({ !isSameMinute(est, $0) }) ?? true {
-                    timelineEvent(
-                        icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-                        label: "Estimated",
-                        date: est,
-                        timezone: flight.destination.timezone,
-                        style: .estimated,
-                        delayMinutes: scheduled.map { minuteDelta(est, from: $0) } ?? nil
-                    )
-                    timelineConnector()
-                }
-            }
-
             if let scheduled = flight.scheduledArrival {
                 timelineEvent(
                     icon: "calendar.badge.clock",
@@ -253,7 +265,57 @@ struct FlightDetailView: View {
                     style: .scheduled,
                     delayMinutes: nil
                 )
-            } else {
+                timelineConnector()
+            }
+
+            if let est = flight.estimatedArrival, let scheduled = flight.scheduledArrival, !isSameMinute(est, scheduled) {
+                timelineEvent(
+                    icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                    label: "Estimated",
+                    date: est,
+                    timezone: flight.destination.timezone,
+                    style: .estimated,
+                    delayMinutes: minuteDelta(est, from: scheduled)
+                )
+                timelineConnector()
+            }
+
+            let arrivalLanding = flight.runwayArrival ?? flight.actualArrival
+            if let landing = arrivalLanding {
+                timelineEvent(
+                    icon: "airplane.arrival",
+                    label: flight.runwayArrival != nil ? "Landing" : "Landing (actual)",
+                    date: landing,
+                    timezone: flight.destination.timezone,
+                    style: flight.scheduledArrival.map { landing > $0 ? .delayed : .actual } ?? .actual,
+                    delayMinutes: flight.scheduledArrival.map { minuteDelta(landing, from: $0) }
+                )
+
+                if let actual = flight.actualArrival, !isSameMinute(actual, landing) {
+                    timelineConnector()
+                } else if flight.actualArrival == nil, flight.runwayArrival != nil {
+                    timelineConnector()
+                }
+            }
+
+            if let gateIn = flight.actualArrival {
+                let scheduled = flight.scheduledArrival
+                let showGateIn = flight.runwayArrival.map { !isSameMinute($0, gateIn) } ?? true
+                if showGateIn {
+                    if flight.runwayArrival != nil { timelineConnector() }
+                    timelineEvent(
+                        icon: "door.right.hand.open",
+                        label: "Gate In",
+                        date: gateIn,
+                        timezone: flight.destination.timezone,
+                        style: scheduled.map { gateIn > $0 ? .delayed : .actual } ?? .actual,
+                        delayMinutes: scheduled.map { minuteDelta(gateIn, from: $0) } ?? nil
+                    )
+                    timelineConnector()
+                }
+            }
+
+            if flight.scheduledArrival == nil && flight.estimatedArrival == nil && flight.runwayArrival == nil && flight.actualArrival == nil {
                 Text("—")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -301,6 +363,9 @@ struct FlightDetailView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(eventColor(style))
             }
+            .frame(width: 26, height: 26)
+            .background(Color(.systemBackground))
+            .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(label)
@@ -332,12 +397,27 @@ struct FlightDetailView: View {
         }
     }
 
+    private func delayPill(icon: String, text: String, isDelayed: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption2)
+            Text(text)
+                .font(.caption2)
+                .fontWeight(.semibold)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background((isDelayed ? Color.red : Color.green).opacity(0.15))
+        .foregroundStyle(isDelayed ? .red : .green)
+        .clipShape(Capsule())
+    }
+
     private func eventColor(_ style: TimelineEventStyle) -> Color {
         switch style {
         case .scheduled: return .secondary
         case .estimated: return .blue
         case .actual: return .green
-        case .delayed: return .orange
+        case .delayed: return .red
         }
     }
 
@@ -424,14 +504,6 @@ struct FlightDetailView: View {
             } else {
                 EmptyView()
             }
-        }
-    }
-
-    private var statusColor: Color {
-        switch flight.flightStatus {
-        case .onTime: return .green
-        case .delayed: return .orange
-        case .cancelled: return .red
         }
     }
 

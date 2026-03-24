@@ -79,21 +79,6 @@ struct MapViewContainer: View {
             }
             .mapStyle(mapStyle)
             .ignoresSafeArea()
-            
-            // Top info card
-            VStack {
-                if let selectedFlight = selectedFlight {
-                    FlightInfoCard(flight: selectedFlight)
-                        .padding()
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                } else {
-                    Text("Tap a flight to view details")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                        .padding()
-                }
-                Spacer()
-            }
         }
     }
 

@@ -11,6 +11,7 @@ import SwiftData
 enum FlightStatus: String, CaseIterable, Codable, Identifiable {
     case onTime = "On Time"
     case delayed = "Delayed"
+    case arrived = "Arrived"
     case cancelled = "Cancelled"
 
     var id: String { rawValue }

@@ -89,24 +89,50 @@ enum FlightLookupService {
             throw FlightLookupError.noFlightFound
         }
 
+        let scheduledDep = parseAeroDate(first.departure?.scheduledTime?.utc) ?? date
+        let revisedDep = parseAeroDate(first.departure?.revisedTime?.utc)
+        let estimatedDep = parseAeroDate(first.departure?.estimatedTime?.utc)
+        let actualDep = parseAeroDate(first.departure?.actualTime?.utc) ?? revisedDep
+        let runwayDep = parseAeroDate(first.departure?.runwayTime?.utc)
+
+        let scheduledArr = parseAeroDate(first.arrival?.scheduledTime?.utc)
+        let revisedArr = parseAeroDate(first.arrival?.revisedTime?.utc)
+        let estimatedArr = parseAeroDate(first.arrival?.estimatedTime?.utc)
+        let runwayArr = parseAeroDate(first.arrival?.runwayTime?.utc)
+        let actualArr = parseAeroDate(first.arrival?.actualTime?.utc) ?? runwayArr
+
+        // Determine status based on API status + departure data.
         let status: FlightStatus
-        switch (first.status ?? "").lowercased() {
-        case "cancelled", "cancelleduncertain":
+        let statusString = (first.status ?? "").lowercased()
+
+        let computedDelayMinutes: Int? = {
+            if let actual = actualDep {
+                return Int(actual.timeIntervalSince(scheduledDep) / 60)
+            }
+            if let estimated = estimatedDep {
+                return Int(estimated.timeIntervalSince(scheduledDep) / 60)
+            }
+            return nil
+        }()
+
+        if statusString.contains("cancel") {
             status = .cancelled
-        case "delayed":
+        } else if statusString.contains("arriv") || statusString.contains("land") {
+            status = .arrived
+        } else if statusString.contains("delay") {
             status = .delayed
-        default:
+        } else if let arrival = actualArr ?? runwayArr, arrival < Date() {
+            status = .arrived
+        } else if let delay = computedDelayMinutes {
+            status = delay > 10 ? .delayed : .onTime
+        } else {
+            // When no explicit delay indicator from API, assume on time (could be stale).
             status = .onTime
         }
 
-        let scheduledDep = parseAeroDate(first.departure?.scheduledTime?.utc) ?? date
-        let estimatedDep = parseAeroDate(first.departure?.estimatedTime?.utc)
-        let actualDep = parseAeroDate(first.departure?.actualTime?.utc)
-        let runwayDep = parseAeroDate(first.departure?.runwayTime?.utc)
-        let runwayArr = parseAeroDate(first.arrival?.runwayTime?.utc)
-        let estimatedArr = parseAeroDate(first.arrival?.estimatedTime?.utc)
-        let scheduledArr = parseAeroDate(first.arrival?.scheduledTime?.utc)
-        let actualArr = parseAeroDate(first.arrival?.actualTime?.utc)
+        #if DEBUG
+        print("FlightLookupService: statusString=\(statusString), scheduled=\(scheduledDep), estimated=\(String(describing: estimatedDep)), actual=\(String(describing: actualDep)), runway=\(String(describing: first.departure?.runwayTime?.utc)), arrivalScheduled=\(String(describing: first.arrival?.scheduledTime?.utc)), arrivalEstimated=\(String(describing: first.arrival?.estimatedTime?.utc)), arrivalActual=\(String(describing: first.arrival?.actualTime?.utc)), computedDelay=\(String(describing: computedDelayMinutes)), resolvedStatus=\(status)")
+        #endif
 
         return FlightLookupResult(
             flightNumber: first.number ?? flightNumber,
@@ -122,11 +148,11 @@ enum FlightLookupService {
             originTimezone: first.departure?.airport?.timeZone,
             destinationTimezone: first.arrival?.airport?.timeZone,
             scheduledDeparture: scheduledDep,
-            estimatedDeparture: estimatedDep,
-            actualDeparture: actualDep,
+            estimatedDeparture: revisedDep ?? estimatedDep,
+            actualDeparture: actualDep ?? revisedDep ?? revisedDep,
             runwayDeparture: runwayDep,
             runwayArrival: runwayArr,
-            estimatedArrival: estimatedArr,
+            estimatedArrival: revisedArr ?? estimatedArr,
             scheduledArrival: scheduledArr,
             actualArrival: actualArr,
             departureGate: first.departure?.gate,
@@ -149,7 +175,7 @@ enum FlightLookupService {
 
 // MARK: - AeroDataBox response models
 
-private struct AeroFlightItem: Decodable {
+private struct AeroFlightItem: Codable {
     let number: String?
     let status: String?
     let airline: AeroAirline?
@@ -158,18 +184,19 @@ private struct AeroFlightItem: Decodable {
     let arrival: AeroEndpoint?
 }
 
-private struct AeroAirline: Decodable {
+private struct AeroAirline: Codable {
     let name: String?
 }
 
-private struct AeroAircraft: Decodable {
+private struct AeroAircraft: Codable {
     let reg: String?
     let model: String?
 }
 
-private struct AeroEndpoint: Decodable {
+private struct AeroEndpoint: Codable {
     let airport: AeroAirport?
     let scheduledTime: AeroTime?
+    let revisedTime: AeroTime?
     let estimatedTime: AeroTime?
     let actualTime: AeroTime?
     let runwayTime: AeroTime?
@@ -179,23 +206,23 @@ private struct AeroEndpoint: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case airport, terminal, gate, baggageBelt
-        case scheduledTime, estimatedTime, actualTime, runwayTime
+        case scheduledTime, revisedTime, estimatedTime, actualTime, runwayTime
     }
 }
 
-private struct AeroAirport: Decodable {
+private struct AeroAirport: Codable {
     let iata: String?
     let name: String?
     let timeZone: String?
     let location: AeroLocation?
 }
 
-private struct AeroLocation: Decodable {
+private struct AeroLocation: Codable {
     let lat: Double?
     let lon: Double?
 }
 
-private struct AeroTime: Decodable {
+private struct AeroTime: Codable {
     let utc: String?
     let local: String?
 }

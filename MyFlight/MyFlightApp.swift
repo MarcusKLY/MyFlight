@@ -15,7 +15,8 @@ struct MyFlightApp: App {
     init() {
         do {
             modelContainer = try ModelContainer(for: Airport.self, Flight.self)
-            FlightSeedData.seedIfNeeded(in: modelContainer.mainContext)
+            // Disabled auto-seeding - user can add flights manually
+            // FlightSeedData.seedIfNeeded(in: modelContainer.mainContext)
         } catch {
             fatalError("Failed to create model container: \(error)")
         }
