@@ -24,9 +24,13 @@ final class Flight {
     var origin: Airport
     var destination: Airport
     var scheduledDeparture: Date
-    var actualDeparture: Date?
+    var estimatedDeparture: Date?     // Estimated gate-out time
+    var actualDeparture: Date?        // Actual gate-out time
+    var runwayDeparture: Date?        // Wheels-off / takeoff time
+    var runwayArrival: Date?          // Wheels-on / landing time
+    var estimatedArrival: Date?       // Estimated gate-in time
     var scheduledArrival: Date?
-    var actualArrival: Date?
+    var actualArrival: Date?          // Actual gate-in time
     var departureGate: String?
     var departureTerminal: String?
     var arrivalGate: String?
@@ -42,7 +46,11 @@ final class Flight {
         origin: Airport,
         destination: Airport,
         scheduledDeparture: Date,
+        estimatedDeparture: Date? = nil,
         actualDeparture: Date? = nil,
+        runwayDeparture: Date? = nil,
+        runwayArrival: Date? = nil,
+        estimatedArrival: Date? = nil,
         scheduledArrival: Date? = nil,
         actualArrival: Date? = nil,
         departureGate: String? = nil,
@@ -60,7 +68,11 @@ final class Flight {
         self.origin = origin
         self.destination = destination
         self.scheduledDeparture = scheduledDeparture
+        self.estimatedDeparture = estimatedDeparture
         self.actualDeparture = actualDeparture
+        self.runwayDeparture = runwayDeparture
+        self.runwayArrival = runwayArrival
+        self.estimatedArrival = estimatedArrival
         self.scheduledArrival = scheduledArrival
         self.actualArrival = actualArrival
         self.departureGate = departureGate
@@ -81,6 +93,49 @@ final class Flight {
     // Keep compatibility with existing call sites that still reference `date`.
     var date: Date {
         scheduledDeparture
+    }
+
+    /// Best estimated departure: actual gate-out > estimated > scheduled.
+    var effectiveDeparture: Date {
+        actualDeparture ?? estimatedDeparture ?? scheduledDeparture
+    }
+
+    /// Best estimated arrival: actual gate-in > estimated > scheduled.
+    var effectiveArrival: Date? {
+        actualArrival ?? estimatedArrival ?? scheduledArrival
+    }
+
+    /// Flight progress in the range 0.0–1.0 based on current time relative to
+    /// takeoff (or gate departure) and landing (or gate/scheduled arrival).
+    /// Returns nil when the flight is not yet trackable (no arrival time known).
+    var flightProgress: Double? {
+        let departure = runwayDeparture ?? actualDeparture ?? scheduledDeparture
+        guard let arrival = runwayArrival ?? actualArrival ?? estimatedArrival ?? scheduledArrival else {
+            return nil
+        }
+        let total = arrival.timeIntervalSince(departure)
+        guard total > 0 else { return nil }
+        let now = Date()
+        guard now >= departure else { return 0 }
+        guard now <= arrival else { return 1 }
+        return now.timeIntervalSince(departure) / total
+    }
+
+    /// Departure delay in minutes compared to scheduled time.
+    var departureDelayMinutes: Int? {
+        guard let actual = actualDeparture ?? estimatedDeparture else { return nil }
+        let delta = actual.timeIntervalSince(scheduledDeparture)
+        let minutes = Int(delta / 60)
+        return minutes != 0 ? minutes : nil
+    }
+
+    /// Arrival delay in minutes compared to scheduled time.
+    var arrivalDelayMinutes: Int? {
+        guard let scheduled = scheduledArrival else { return nil }
+        guard let actual = actualArrival ?? estimatedArrival else { return nil }
+        let delta = actual.timeIntervalSince(scheduled)
+        let minutes = Int(delta / 60)
+        return minutes != 0 ? minutes : nil
     }
 
     var dateFormatted: String {

@@ -196,7 +196,11 @@ struct ContentView: View {
                     origin: origin,
                     destination: destination,
                     scheduledDeparture: draft.scheduledDeparture,
+                    estimatedDeparture: draft.estimatedDeparture,
                     actualDeparture: draft.actualDeparture,
+                    runwayDeparture: draft.runwayDeparture,
+                    runwayArrival: draft.runwayArrival,
+                    estimatedArrival: draft.estimatedArrival,
                     scheduledArrival: draft.scheduledArrival,
                     actualArrival: draft.actualArrival,
                     departureGate: draft.departureGate,
@@ -284,8 +288,12 @@ private struct AddFlightSheet: View {
     @State private var originTimezone: String?
     @State private var destinationTimezone: String?
     @State private var scheduledDeparture = Date()
+    @State private var estimatedDeparture: Date?
     @State private var includeActualDeparture = false
     @State private var actualDeparture = Date()
+    @State private var runwayDeparture: Date?
+    @State private var runwayArrival: Date?
+    @State private var estimatedArrival: Date?
     @State private var scheduledArrival: Date?
     @State private var actualArrival: Date?
     @State private var departureGate = ""
@@ -452,7 +460,11 @@ private struct AddFlightSheet: View {
                                 originTimezone: originTimezone,
                                 destinationTimezone: destinationTimezone,
                                 scheduledDeparture: scheduledDeparture,
+                                estimatedDeparture: estimatedDeparture,
                                 actualDeparture: includeActualDeparture ? actualDeparture : nil,
+                                runwayDeparture: runwayDeparture,
+                                runwayArrival: runwayArrival,
+                                estimatedArrival: estimatedArrival,
                                 scheduledArrival: scheduledArrival,
                                 actualArrival: actualArrival,
                                 departureGate: departureGate.nilIfEmpty,
@@ -509,8 +521,12 @@ private struct AddFlightSheet: View {
             originTimezone = result.originTimezone
             destinationTimezone = result.destinationTimezone
             scheduledDeparture = result.scheduledDeparture
+            estimatedDeparture = result.estimatedDeparture
             actualDeparture = result.actualDeparture ?? actualDeparture
             includeActualDeparture = result.actualDeparture != nil
+            runwayDeparture = result.runwayDeparture
+            runwayArrival = result.runwayArrival
+            estimatedArrival = result.estimatedArrival
             scheduledArrival = result.scheduledArrival
             actualArrival = result.actualArrival
             departureGate = result.departureGate ?? ""
@@ -548,7 +564,11 @@ private struct FlightDraft {
     let originTimezone: String?
     let destinationTimezone: String?
     let scheduledDeparture: Date
+    let estimatedDeparture: Date?
     let actualDeparture: Date?
+    let runwayDeparture: Date?
+    let runwayArrival: Date?
+    let estimatedArrival: Date?
     let scheduledArrival: Date?
     let actualArrival: Date?
     let departureGate: String?

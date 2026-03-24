@@ -21,7 +21,12 @@ struct FlightDetailView: View {
 
                     Divider()
 
-                    timingsSection
+                    progressSection
+                        .padding(.vertical, 16)
+
+                    Divider()
+
+                    timelineSection
                         .padding(.vertical, 16)
 
                     Divider()
@@ -108,65 +113,237 @@ struct FlightDetailView: View {
             .clipShape(Capsule())
     }
 
-    // MARK: - Timings Section
+    // MARK: - Live Progress Bar
 
-    private var timingsSection: some View {
+    private var progressSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionLabel("Times")
+            sectionLabel("Flight Progress")
+            LiveProgressBar(flight: flight)
+        }
+    }
 
-            HStack(alignment: .top) {
-                timingColumn(
-                    title: "Departure",
-                    airport: flight.origin,
-                    scheduled: flight.scheduledDeparture,
-                    actual: flight.actualDeparture
+    // MARK: - Granular Timeline Section
+
+    private var timelineSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionLabel("Timeline")
+
+            HStack(alignment: .top, spacing: 16) {
+                departureTimeline
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Divider()
+                    .frame(height: 160)
+
+                arrivalTimeline
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var departureTimeline: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            timelineHeader(
+                icon: "airplane.departure",
+                title: "Departure",
+                iata: flight.origin.iataCode,
+                timezone: flight.origin.timezone
+            )
+
+            timelineEvent(
+                icon: "calendar.badge.clock",
+                label: "Scheduled",
+                date: flight.scheduledDeparture,
+                timezone: flight.origin.timezone,
+                style: .scheduled,
+                delayMinutes: nil
+            )
+
+            if let est = flight.estimatedDeparture, !isSameMinute(est, flight.scheduledDeparture) {
+                timelineConnector()
+                timelineEvent(
+                    icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                    label: "Estimated",
+                    date: est,
+                    timezone: flight.origin.timezone,
+                    style: .estimated,
+                    delayMinutes: minuteDelta(est, from: flight.scheduledDeparture)
                 )
+            }
 
-                Spacer()
+            if let dep = flight.actualDeparture {
+                timelineConnector()
+                timelineEvent(
+                    icon: "door.left.hand.open",
+                    label: "Gate Out",
+                    date: dep,
+                    timezone: flight.origin.timezone,
+                    style: dep > flight.scheduledDeparture ? .delayed : .actual,
+                    delayMinutes: minuteDelta(dep, from: flight.scheduledDeparture)
+                )
+            }
 
-                if let scheduledArrival = flight.scheduledArrival {
-                    timingColumn(
-                        title: "Arrival",
-                        airport: flight.destination,
-                        scheduled: scheduledArrival,
-                        actual: flight.actualArrival
+            if let takeoff = flight.runwayDeparture {
+                timelineConnector()
+                timelineEvent(
+                    icon: "airplane.departure",
+                    label: "Takeoff",
+                    date: takeoff,
+                    timezone: flight.origin.timezone,
+                    style: .actual,
+                    delayMinutes: nil
+                )
+            }
+        }
+    }
+
+    private var arrivalTimeline: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            timelineHeader(
+                icon: "airplane.arrival",
+                title: "Arrival",
+                iata: flight.destination.iataCode,
+                timezone: flight.destination.timezone
+            )
+
+            if let landing = flight.runwayArrival {
+                timelineEvent(
+                    icon: "airplane.arrival",
+                    label: "Landing",
+                    date: landing,
+                    timezone: flight.destination.timezone,
+                    style: .actual,
+                    delayMinutes: nil
+                )
+                timelineConnector()
+            }
+
+            if let gateIn = flight.actualArrival {
+                let scheduled = flight.scheduledArrival
+                timelineEvent(
+                    icon: "door.right.hand.open",
+                    label: "Gate In",
+                    date: gateIn,
+                    timezone: flight.destination.timezone,
+                    style: scheduled.map { gateIn > $0 ? .delayed : .actual } ?? .actual,
+                    delayMinutes: scheduled.map { minuteDelta(gateIn, from: $0) } ?? nil
+                )
+                timelineConnector()
+            } else if let est = flight.estimatedArrival {
+                let scheduled = flight.scheduledArrival
+                if scheduled.map({ !isSameMinute(est, $0) }) ?? true {
+                    timelineEvent(
+                        icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                        label: "Estimated",
+                        date: est,
+                        timezone: flight.destination.timezone,
+                        style: .estimated,
+                        delayMinutes: scheduled.map { minuteDelta(est, from: $0) } ?? nil
                     )
+                    timelineConnector()
+                }
+            }
+
+            if let scheduled = flight.scheduledArrival {
+                timelineEvent(
+                    icon: "calendar.badge.clock",
+                    label: "Scheduled",
+                    date: scheduled,
+                    timezone: flight.destination.timezone,
+                    style: .scheduled,
+                    delayMinutes: nil
+                )
+            } else {
+                Text("—")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+            }
+        }
+    }
+
+    private func timelineHeader(icon: String, title: String, iata: String, timezone: String?) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.blue)
+            Text("\(title) · \(iata)")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            if let tz = timezone {
+                Text(abbreviatedTimezone(identifier: tz))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.bottom, 8)
+    }
+
+    private enum TimelineEventStyle {
+        case scheduled, estimated, actual, delayed
+    }
+
+    private func timelineEvent(
+        icon: String,
+        label: String,
+        date: Date,
+        timezone: String?,
+        style: TimelineEventStyle,
+        delayMinutes: Int?
+    ) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            ZStack {
+                Circle()
+                    .fill(eventColor(style).opacity(0.15))
+                    .frame(width: 24, height: 24)
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(eventColor(style))
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text(localTime(date: date, timezone: timezone))
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(eventColor(style))
+
+                    if let delta = delayMinutes {
+                        Text(delayLabel(delta))
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(delta > 0 ? .orange : .green)
+                    }
                 }
             }
         }
     }
 
-    private func timingColumn(title: String, airport: Airport, scheduled: Date, actual: Date?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-
-            Text(localTime(date: scheduled, timezone: airport.timezone))
-                .font(.system(size: 28, weight: .semibold, design: .rounded))
-
-            Text(localDate(date: scheduled, timezone: airport.timezone))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if let tz = airport.timezone {
-                Text(abbreviatedTimezone(identifier: tz))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-
-            if let actual {
-                let isDelayed = actual > scheduled
-                HStack(spacing: 4) {
-                    Image(systemName: isDelayed ? "clock.badge.exclamationmark" : "checkmark.circle")
-                        .font(.caption2)
-                    Text("Actual: \(localTime(date: actual, timezone: airport.timezone))")
-                        .font(.caption2)
-                }
-                .foregroundStyle(isDelayed ? Color.orange : Color.green)
-            }
+    private func timelineConnector() -> some View {
+        HStack {
+            Spacer().frame(width: 11)
+            Rectangle()
+                .fill(Color.secondary.opacity(0.25))
+                .frame(width: 2, height: 10)
         }
+    }
+
+    private func eventColor(_ style: TimelineEventStyle) -> Color {
+        switch style {
+        case .scheduled: return .secondary
+        case .estimated: return .blue
+        case .actual: return .green
+        case .delayed: return .orange
+        }
+    }
+
+    private func delayLabel(_ minutes: Int) -> String {
+        if minutes > 0 { return "+\(minutes)m" }
+        return "\(minutes)m"
     }
 
     // MARK: - Gates & Terminal Section
@@ -288,6 +465,134 @@ struct FlightDetailView: View {
         guard let zone = TimeZone(identifier: identifier) else { return identifier }
         return zone.abbreviation() ?? identifier
     }
+
+    private func minuteDelta(_ date: Date, from reference: Date) -> Int {
+        Int(date.timeIntervalSince(reference) / 60)
+    }
+
+    private func isSameMinute(_ a: Date, _ b: Date) -> Bool {
+        Calendar.current.isDate(a, equalTo: b, toGranularity: .minute)
+    }
+}
+
+// MARK: - Live Progress Bar
+
+struct LiveProgressBar: View {
+    let flight: Flight
+
+    private var progress: Double {
+        flight.flightProgress ?? progressFromScheduled
+    }
+
+    private var progressFromScheduled: Double {
+        guard let arrival = flight.scheduledArrival else { return 0 }
+        let departure = flight.scheduledDeparture
+        let now = Date()
+        guard now >= departure else { return 0 }
+        guard now <= arrival else { return 1 }
+        let total = arrival.timeIntervalSince(departure)
+        guard total > 0 else { return 0 }
+        return now.timeIntervalSince(departure) / total
+    }
+
+    private var isInFlight: Bool {
+        let departure = flight.runwayDeparture ?? flight.actualDeparture ?? flight.scheduledDeparture
+        let arrival = flight.runwayArrival ?? flight.actualArrival ?? flight.scheduledArrival ?? Date.distantFuture
+        let now = Date()
+        return now >= departure && now <= arrival
+    }
+
+    private var statusText: String {
+        let p = progress
+        if p <= 0 {
+            let dep = flight.estimatedDeparture ?? flight.scheduledDeparture
+            let mins = Int(dep.timeIntervalSinceNow / 60)
+            if mins > 0 { return "Departs in \(mins)m" }
+            return "Not departed"
+        }
+        if p >= 1 { return "Arrived" }
+        if let arrival = flight.runwayArrival ?? flight.actualArrival ?? flight.estimatedArrival ?? flight.scheduledArrival {
+            let minsLeft = Int(arrival.timeIntervalSinceNow / 60)
+            if minsLeft > 0 { return "Arrives in \(minsLeft)m" }
+        }
+        return String(format: "%.0f%% complete", p * 100)
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    // Track
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(height: 6)
+
+                    // Fill
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [.blue.opacity(0.6), .blue],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: max(6, geo.size.width * progress), height: 6)
+                        .animation(.easeInOut(duration: 0.3), value: progress)
+
+                    // Airplane icon
+                    let iconOffset = max(0, min(geo.size.width - 20, geo.size.width * progress - 10))
+                    Image(systemName: "airplane")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.blue)
+                        .offset(x: iconOffset, y: -12)
+                        .animation(.easeInOut(duration: 0.3), value: progress)
+                }
+                .padding(.top, 16)
+            }
+            .frame(height: 36)
+
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(flight.origin.iataCode)
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                    Text(localTime(date: flight.scheduledDeparture, timezone: flight.origin.timezone))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text(statusText)
+                    .font(.caption2)
+                    .foregroundStyle(isInFlight ? .blue : .secondary)
+                    .fontWeight(isInFlight ? .semibold : .regular)
+
+                Spacer()
+
+                if let arrival = flight.scheduledArrival {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(flight.destination.iataCode)
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                        Text(localTime(date: arrival, timezone: flight.destination.timezone))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func localTime(date: Date, timezone: String?) -> String {
+        let f = DateFormatter()
+        f.dateStyle = .none
+        f.timeStyle = .short
+        if let tz = timezone, let zone = TimeZone(identifier: tz) {
+            f.timeZone = zone
+        }
+        return f.string(from: date)
+    }
 }
 
 #Preview {
@@ -299,10 +604,14 @@ struct FlightDetailView: View {
         airline: "Cathay Pacific",
         origin: origin,
         destination: destination,
-        scheduledDeparture: now,
-        actualDeparture: now.addingTimeInterval(600),
-        scheduledArrival: now.addingTimeInterval(10 * 3600),
-        actualArrival: now.addingTimeInterval(10 * 3600 - 300),
+        scheduledDeparture: now.addingTimeInterval(-3 * 3600),
+        estimatedDeparture: now.addingTimeInterval(-3 * 3600 + 900),
+        actualDeparture: now.addingTimeInterval(-3 * 3600 + 1320),
+        runwayDeparture: now.addingTimeInterval(-3 * 3600 + 2280),
+        runwayArrival: now.addingTimeInterval(7 * 3600 - 1200),
+        estimatedArrival: now.addingTimeInterval(7 * 3600 - 300),
+        scheduledArrival: now.addingTimeInterval(7 * 3600),
+        actualArrival: nil,
         departureGate: "B36",
         departureTerminal: "1",
         arrivalGate: "A8",
@@ -314,3 +623,4 @@ struct FlightDetailView: View {
     )
     return FlightDetailView(flight: flight)
 }
+

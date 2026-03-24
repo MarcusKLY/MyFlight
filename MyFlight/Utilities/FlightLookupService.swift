@@ -21,7 +21,11 @@ struct FlightLookupResult {
     let originTimezone: String?
     let destinationTimezone: String?
     let scheduledDeparture: Date
+    let estimatedDeparture: Date?
     let actualDeparture: Date?
+    let runwayDeparture: Date?
+    let runwayArrival: Date?
+    let estimatedArrival: Date?
     let scheduledArrival: Date?
     let actualArrival: Date?
     let departureGate: String?
@@ -96,7 +100,11 @@ enum FlightLookupService {
         }
 
         let scheduledDep = parseAeroDate(first.departure?.scheduledTime?.utc) ?? date
+        let estimatedDep = parseAeroDate(first.departure?.estimatedTime?.utc)
         let actualDep = parseAeroDate(first.departure?.actualTime?.utc)
+        let runwayDep = parseAeroDate(first.departure?.runwayTime?.utc)
+        let runwayArr = parseAeroDate(first.arrival?.runwayTime?.utc)
+        let estimatedArr = parseAeroDate(first.arrival?.estimatedTime?.utc)
         let scheduledArr = parseAeroDate(first.arrival?.scheduledTime?.utc)
         let actualArr = parseAeroDate(first.arrival?.actualTime?.utc)
 
@@ -114,7 +122,11 @@ enum FlightLookupService {
             originTimezone: first.departure?.airport?.timeZone,
             destinationTimezone: first.arrival?.airport?.timeZone,
             scheduledDeparture: scheduledDep,
+            estimatedDeparture: estimatedDep,
             actualDeparture: actualDep,
+            runwayDeparture: runwayDep,
+            runwayArrival: runwayArr,
+            estimatedArrival: estimatedArr,
             scheduledArrival: scheduledArr,
             actualArrival: actualArr,
             departureGate: first.departure?.gate,
@@ -158,14 +170,16 @@ private struct AeroAircraft: Decodable {
 private struct AeroEndpoint: Decodable {
     let airport: AeroAirport?
     let scheduledTime: AeroTime?
+    let estimatedTime: AeroTime?
     let actualTime: AeroTime?
+    let runwayTime: AeroTime?
     let terminal: String?
     let gate: String?
     let baggageBelt: String?
 
     enum CodingKeys: String, CodingKey {
         case airport, terminal, gate, baggageBelt
-        case scheduledTime, actualTime
+        case scheduledTime, estimatedTime, actualTime, runwayTime
     }
 }
 
