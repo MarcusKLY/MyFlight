@@ -239,7 +239,9 @@ struct FlightListItemView: View {
                 FlightProgressLine(
                     progress: currentProgress,
                     isInFlight: isInFlight,
-                    duration: flight.durationFormatted
+                    duration: flight.durationFormatted,
+                    status: flight.flightStatus,
+                    isDelayed: (flight.arrivalDelayMinutes ?? 0) > 0
                 )
 
                 // Destination
@@ -384,6 +386,24 @@ struct FlightProgressLine: View {
     let progress: Double
     let isInFlight: Bool
     let duration: String?
+    let status: FlightStatus
+    let isDelayed: Bool
+
+    private var lineGradient: LinearGradient {
+        if isInFlight {
+            return LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing)
+        }
+        if status == .arrived {
+            return LinearGradient(colors: isDelayed ? [.orange, .red] : [.green, .green.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
+        }
+        if status == .departed || status == .enRoute {
+            return LinearGradient(colors: [.blue.opacity(0.6), .blue.opacity(0.3)], startPoint: .leading, endPoint: .trailing)
+        }
+        if status == .delayed {
+            return LinearGradient(colors: [.orange, .red], startPoint: .leading, endPoint: .trailing)
+        }
+        return LinearGradient(colors: [.gray.opacity(0.5), .gray.opacity(0.3)], startPoint: .leading, endPoint: .trailing)
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -396,13 +416,7 @@ struct FlightProgressLine: View {
                 // Progress fill
                 GeometryReader { geo in
                     Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: isInFlight ? [.blue, .cyan] : [.gray.opacity(0.5), .gray.opacity(0.3)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
+                        .fill(lineGradient)
                         .frame(width: geo.size.width * progress, height: 3)
                 }
                 .frame(height: 3)
@@ -413,7 +427,7 @@ struct FlightProgressLine: View {
                         Image(systemName: "airplane")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(.blue)
-                            .offset(x: geo.size.width * progress - 6)
+                            .offset(x: max(0, min(geo.size.width - 12, geo.size.width * progress - 6)))
                     }
                     .frame(height: 12)
                 }

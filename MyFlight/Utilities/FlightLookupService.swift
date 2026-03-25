@@ -22,10 +22,12 @@ struct FlightLookupResult {
     let originTimezone: String?
     let destinationTimezone: String?
     let scheduledDeparture: Date
+    let revisedDeparture: Date?
     let estimatedDeparture: Date?
     let actualDeparture: Date?
     let runwayDeparture: Date?
     let runwayArrival: Date?
+    let revisedArrival: Date?
     let estimatedArrival: Date?
     let predictedArrival: Date?
     let scheduledArrival: Date?
@@ -39,6 +41,8 @@ struct FlightLookupResult {
     let arrivalRunway: String?
     let baggageClaim: String?
     let aircraftModel: String?
+    let aircraftImageUrl: String?
+    let aircraftAge: String?
     let tailNumber: String?
     let distanceKm: Double?
     let distanceNm: Double?
@@ -49,13 +53,16 @@ struct FlightLookupResult {
 
 enum FlightLookupError: LocalizedError {
     case missingAPIKey
+    case rateLimitExceeded
     case noFlightFound
     case invalidResponse
 
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return "Flight API key missing. Add FLIGHT_API_KEY in Info.plist or project build settings."
+            return "Flight API key missing. Add FLIGHT_API_KEYS or FLIGHT_API_KEY in Info.plist or project build settings."
+        case .rateLimitExceeded:
+            return "All configured RapidAPI keys hit rate limits. Add more keys in FLIGHT_API_KEYS."
         case .noFlightFound:
             return "No flight data found for the provided flight number and date."
         case .invalidResponse:
@@ -66,10 +73,10 @@ enum FlightLookupError: LocalizedError {
 
 enum FlightLookupService {
     /// Looks up a flight using the AeroDataBox API (via RapidAPI).
-    /// Requires `FLIGHT_API_KEY` in Info.plist set to your RapidAPI key.
+    /// Requires `FLIGHT_API_KEYS` (comma-separated) or `FLIGHT_API_KEY` in Info.plist.
     static func lookup(flightNumber: String, date: Date) async throws -> FlightLookupResult {
-        guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "FLIGHT_API_KEY") as? String,
-              !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let rapidAPIKeys = rapidAPIKeysFromConfig()
+        guard !rapidAPIKeys.isEmpty else {
             throw FlightLookupError.missingAPIKey
         }
 
@@ -77,47 +84,68 @@ enum FlightLookupService {
         let normalizedNumber = flightNumber
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: " ", with: "")
-        let dateString = DateFormatter.apiDate.string(from: date)
+        let selectedDateKey = DateFormatter.apiDateLocal.string(from: date)
+        let dateString = selectedDateKey
 
         guard let url = URL(string: "https://aerodatabox.p.rapidapi.com/flights/number/\(normalizedNumber)/\(dateString)") else {
             throw FlightLookupError.invalidResponse
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(apiKey, forHTTPHeaderField: "X-RapidAPI-Key")
-        request.setValue("aerodatabox.p.rapidapi.com", forHTTPHeaderField: "X-RapidAPI-Host")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-            throw FlightLookupError.invalidResponse
-        }
+        let (data, httpResponse, usedRapidKey) = try await performAeroDataBoxRequest(url: url, apiKeys: rapidAPIKeys)
 
         let decoded = try JSONDecoder().decode([AeroFlightItem].self, from: data)
-        guard let first = decoded.first else {
+        guard !decoded.isEmpty else {
             throw FlightLookupError.noFlightFound
         }
 
-        let scheduledDep = parseAeroDate(first.departure?.scheduledTime?.utc) ?? date
-        let revisedDep = parseAeroDate(first.departure?.revisedTime?.utc)
-        let estimatedDep = parseAeroDate(first.departure?.estimatedTime?.utc)
-        let actualDep = parseAeroDate(first.departure?.actualTime?.utc) ?? revisedDep
-        let runwayDep = parseAeroDate(first.departure?.runwayTime?.utc)
+        let datedCandidates = decoded.filter { item in
+            let localMatch = item.departure?.scheduledTime?.local.map { $0.contains(selectedDateKey) } ?? false
+            let utcMatch = item.departure?.scheduledTime?.utc.map { $0.contains(selectedDateKey) } ?? false
+            return localMatch || utcMatch
+        }
 
-        let scheduledArr = parseAeroDate(first.arrival?.scheduledTime?.utc)
-        let revisedArr = parseAeroDate(first.arrival?.revisedTime?.utc)
-        let estimatedArr = parseAeroDate(first.arrival?.estimatedTime?.utc)
-        let predictedArr = parseAeroDate(first.arrival?.predictedTime?.utc)
-        let runwayArr = parseAeroDate(first.arrival?.runwayTime?.utc)
-        let actualArr = parseAeroDate(first.arrival?.actualTime?.utc) ?? runwayArr
+        let pool = datedCandidates
+        guard let selected = pool.min(by: { lhs, rhs in
+            let lhsPriority = statusSelectionPriority(rawStatus: lhs.status)
+            let rhsPriority = statusSelectionPriority(rawStatus: rhs.status)
+            if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+
+            let lhsDep = parseAeroDate(lhs.departure?.scheduledTime?.utc) ?? Date.distantFuture
+            let rhsDep = parseAeroDate(rhs.departure?.scheduledTime?.utc) ?? Date.distantFuture
+            let lhsDistance = abs(lhsDep.timeIntervalSinceNow)
+            let rhsDistance = abs(rhsDep.timeIntervalSinceNow)
+            if lhsDistance != rhsDistance { return lhsDistance < rhsDistance }
+
+            return lhsDep < rhsDep
+        }) else {
+            throw FlightLookupError.noFlightFound
+        }
+
+        let scheduledDep = parseAeroDate(selected.departure?.scheduledTime?.utc) ?? date
+        let revisedDep = parseAeroDate(selected.departure?.revisedTime?.utc)
+        let estimatedDep = parseAeroDate(selected.departure?.estimatedTime?.utc)
+        let actualDep = parseAeroDate(selected.departure?.actualTime?.utc)
+        let runwayDep = parseAeroDate(selected.departure?.runwayTime?.utc)
+
+        let scheduledArr = parseAeroDate(selected.arrival?.scheduledTime?.utc)
+        let revisedArr = parseAeroDate(selected.arrival?.revisedTime?.utc)
+        let estimatedArr = parseAeroDate(selected.arrival?.estimatedTime?.utc)
+        let predictedArr = parseAeroDate(selected.arrival?.predictedTime?.utc)
+        let runwayArr = parseAeroDate(selected.arrival?.runwayTime?.utc)
+        let actualArr = parseAeroDate(selected.arrival?.actualTime?.utc)
+        async let aircraftImageUrl = fetchAircraftImageURL(apiKeys: rapidAPIKeys, registration: selected.aircraft?.reg)
+        async let aircraftAge = fetchAircraftAge(registration: selected.aircraft?.reg)
 
         // Determine status based on API status + departure data.
         let status: FlightStatus
-        let statusString = (first.status ?? "").lowercased()
+        let statusString = (selected.status ?? "").lowercased()
 
         let computedDelayMinutes: Int? = {
             if let actual = actualDep {
                 return Int(actual.timeIntervalSince(scheduledDep) / 60)
+            }
+            if let revised = revisedDep {
+                return Int(revised.timeIntervalSince(scheduledDep) / 60)
             }
             if let estimated = estimatedDep {
                 return Int(estimated.timeIntervalSince(scheduledDep) / 60)
@@ -147,48 +175,242 @@ enum FlightLookupService {
         }
 
         #if DEBUG
-        print("FlightLookupService: statusString=\(statusString), scheduled=\(scheduledDep), estimated=\(String(describing: estimatedDep)), actual=\(String(describing: actualDep)), runway=\(String(describing: first.departure?.runwayTime?.utc)), arrivalScheduled=\(String(describing: first.arrival?.scheduledTime?.utc)), arrivalEstimated=\(String(describing: first.arrival?.estimatedTime?.utc)), arrivalPredicted=\(String(describing: first.arrival?.predictedTime?.utc)), arrivalActual=\(String(describing: first.arrival?.actualTime?.utc)), computedDelay=\(String(describing: computedDelayMinutes)), resolvedStatus=\(status)")
+        print("FlightLookupService: selectedDateKey=\(selectedDateKey), decoded=\(decoded.count), datedCandidates=\(datedCandidates.count), selectedStatus=\(selected.status ?? "unknown"), selectedDepLocal=\(selected.departure?.scheduledTime?.local ?? "nil"), statusString=\(statusString), scheduled=\(scheduledDep), estimated=\(String(describing: estimatedDep)), actual=\(String(describing: actualDep)), runway=\(String(describing: selected.departure?.runwayTime?.utc)), arrivalScheduled=\(String(describing: selected.arrival?.scheduledTime?.utc)), arrivalEstimated=\(String(describing: selected.arrival?.estimatedTime?.utc)), arrivalPredicted=\(String(describing: selected.arrival?.predictedTime?.utc)), arrivalActual=\(String(describing: selected.arrival?.actualTime?.utc)), computedDelay=\(String(describing: computedDelayMinutes)), resolvedStatus=\(status), requestStatus=\(httpResponse.statusCode), keySuffix=\(String(usedRapidKey.suffix(4))))")
         #endif
 
         return FlightLookupResult(
-            flightNumber: first.number ?? flightNumber,
-            airline: first.airline?.name ?? "Unknown Airline",
-            airlineIATA: first.airline?.iata,
-            originIATACode: first.departure?.airport?.iata ?? "",
-            destinationIATACode: first.arrival?.airport?.iata ?? "",
-            originName: first.departure?.airport?.name,
-            destinationName: first.arrival?.airport?.name,
-            originLatitude: first.departure?.airport?.location?.lat,
-            originLongitude: first.departure?.airport?.location?.lon,
-            destinationLatitude: first.arrival?.airport?.location?.lat,
-            destinationLongitude: first.arrival?.airport?.location?.lon,
-            originTimezone: first.departure?.airport?.timeZone,
-            destinationTimezone: first.arrival?.airport?.timeZone,
+            flightNumber: selected.number ?? flightNumber,
+            airline: selected.airline?.name ?? "Unknown Airline",
+            airlineIATA: selected.airline?.iata,
+            originIATACode: selected.departure?.airport?.iata ?? "",
+            destinationIATACode: selected.arrival?.airport?.iata ?? "",
+            originName: selected.departure?.airport?.name,
+            destinationName: selected.arrival?.airport?.name,
+            originLatitude: selected.departure?.airport?.location?.lat,
+            originLongitude: selected.departure?.airport?.location?.lon,
+            destinationLatitude: selected.arrival?.airport?.location?.lat,
+            destinationLongitude: selected.arrival?.airport?.location?.lon,
+            originTimezone: selected.departure?.airport?.timeZone,
+            destinationTimezone: selected.arrival?.airport?.timeZone,
             scheduledDeparture: scheduledDep,
-            estimatedDeparture: revisedDep ?? estimatedDep,
-            actualDeparture: actualDep ?? revisedDep ?? revisedDep,
+            revisedDeparture: revisedDep,
+            estimatedDeparture: estimatedDep,
+            actualDeparture: actualDep,
             runwayDeparture: runwayDep,
             runwayArrival: runwayArr,
-            estimatedArrival: revisedArr ?? estimatedArr,
+            revisedArrival: revisedArr,
+            estimatedArrival: estimatedArr,
             predictedArrival: predictedArr,
             scheduledArrival: scheduledArr,
             actualArrival: actualArr,
-            departureGate: first.departure?.gate,
-            departureTerminal: first.departure?.terminal,
-            departureRunway: first.departure?.runway,
-            departureCheckInDesk: first.departure?.checkInDesk,
-            arrivalGate: first.arrival?.gate,
-            arrivalTerminal: first.arrival?.terminal,
-            arrivalRunway: first.arrival?.runway,
-            baggageClaim: first.arrival?.baggageBelt,
-            aircraftModel: first.aircraft?.model,
-            tailNumber: first.aircraft?.reg,
-            distanceKm: first.greatCircleDistance?.km,
-            distanceNm: first.greatCircleDistance?.nm,
-            distanceMiles: first.greatCircleDistance?.mile,
-            callSign: first.callSign,
+            departureGate: selected.departure?.gate,
+            departureTerminal: selected.departure?.terminal,
+            departureRunway: selected.departure?.runway,
+            departureCheckInDesk: selected.departure?.checkInDesk,
+            arrivalGate: selected.arrival?.gate,
+            arrivalTerminal: selected.arrival?.terminal,
+            arrivalRunway: selected.arrival?.runway,
+            baggageClaim: selected.arrival?.baggageBelt,
+            aircraftModel: selected.aircraft?.model,
+            aircraftImageUrl: await aircraftImageUrl,
+            aircraftAge: await aircraftAge,
+            tailNumber: selected.aircraft?.reg,
+            distanceKm: selected.greatCircleDistance?.km,
+            distanceNm: selected.greatCircleDistance?.nm,
+            distanceMiles: selected.greatCircleDistance?.mile,
+            callSign: selected.callSign,
             status: status
         )
+    }
+
+    private static func statusSelectionPriority(rawStatus: String?) -> Int {
+        let status = (rawStatus ?? "").lowercased()
+        if status.contains("arriv") || status.contains("land") {
+            return 1
+        }
+        return 0
+    }
+
+    private static func rapidAPIKeysFromConfig() -> [String] {
+        if let csv = Bundle.main.object(forInfoDictionaryKey: "FLIGHT_API_KEYS") as? String {
+            let keys = csv
+                .split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !keys.isEmpty { return keys }
+        }
+
+        if let single = Bundle.main.object(forInfoDictionaryKey: "FLIGHT_API_KEY") as? String {
+            let key = single.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !key.isEmpty { return [key] }
+        }
+
+        return []
+    }
+
+    private static func performAeroDataBoxRequest(url: URL, apiKeys: [String]) async throws -> (Data, HTTPURLResponse, String) {
+        var lastRateLimited = false
+
+        for (index, apiKey) in apiKeys.enumerated() {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue(apiKey, forHTTPHeaderField: "X-RapidAPI-Key")
+            request.setValue("aerodatabox.p.rapidapi.com", forHTTPHeaderField: "X-RapidAPI-Host")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw FlightLookupError.invalidResponse
+            }
+
+            if httpResponse.statusCode == 429 {
+                lastRateLimited = true
+                let hasNextKey = index < apiKeys.count - 1
+                if hasNextKey {
+                    continue
+                }
+                break
+            }
+
+            guard 200..<300 ~= httpResponse.statusCode else {
+                throw FlightLookupError.invalidResponse
+            }
+
+            return (data, httpResponse, apiKey)
+        }
+
+        if lastRateLimited {
+            throw FlightLookupError.rateLimitExceeded
+        }
+        throw FlightLookupError.invalidResponse
+    }
+
+    private static func fetchAircraftImageURL(apiKeys: [String], registration: String?) async -> String? {
+        guard let registration,
+              !registration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let encodedReg = registration.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "https://aerodatabox.p.rapidapi.com/aircrafts/reg/\(encodedReg)/image/image") else {
+            return nil
+        }
+
+        do {
+            let (data, httpResponse, _) = try await performAeroDataBoxRequest(url: url, apiKeys: apiKeys)
+
+            if let mimeType = httpResponse.value(forHTTPHeaderField: "Content-Type"),
+               mimeType.lowercased().contains("image") {
+                return url.absoluteString
+            }
+
+            let object = try JSONSerialization.jsonObject(with: data)
+            return extractURLString(from: object)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func fetchAircraftAge(registration: String?) async -> String? {
+        guard let registration,
+              !registration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let airLabsKey = Bundle.main.object(forInfoDictionaryKey: "AIRLABS_API_KEY") as? String,
+              !airLabsKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let encodedReg = registration.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://airlabs.co/api/v9/fleets?reg=\(encodedReg)&api_key=\(airLabsKey)") else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
+                return nil
+            }
+
+            let object = try JSONSerialization.jsonObject(with: data)
+            guard let root = object as? [String: Any],
+                  let response = root["response"] as? [Any],
+                  let first = response.first else {
+                return nil
+            }
+
+            return extractAircraftAge(from: first)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func extractAircraftAge(from object: Any) -> String? {
+        guard let dict = object as? [String: Any] else { return nil }
+
+        let ageKeys = ["age", "aircraft_age", "plane_age", "ac_age"]
+        for key in ageKeys {
+            if let ageInt = dict[key] as? Int, ageInt > 0 {
+                return "\(ageInt) years"
+            }
+            if let ageDouble = dict[key] as? Double, ageDouble > 0 {
+                return "\(Int(ageDouble.rounded())) years"
+            }
+            if let ageString = dict[key] as? String,
+               let ageInt = Int(ageString.trimmingCharacters(in: .whitespacesAndNewlines)), ageInt > 0 {
+                return "\(ageInt) years"
+            }
+        }
+
+        let builtKeys = ["built", "built_date", "built_year", "first_flight_date"]
+        for key in builtKeys {
+            if let builtYear = normalizedYear(from: dict[key]) {
+                let currentYear = Calendar.current.component(.year, from: Date())
+                if builtYear <= currentYear {
+                    return "\(max(currentYear - builtYear, 0)) years"
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func normalizedYear(from raw: Any?) -> Int? {
+        if let year = raw as? Int, year > 1900 { return year }
+        if let string = raw as? String {
+            let digits = string.prefix(4)
+            if let year = Int(digits), year > 1900 {
+                return year
+            }
+        }
+        return nil
+    }
+
+    private static func extractURLString(from object: Any) -> String? {
+        if let string = object as? String,
+           let url = URL(string: string),
+           let scheme = url.scheme,
+           (scheme == "http" || scheme == "https") {
+            return string
+        }
+
+        if let dict = object as? [String: Any] {
+            let preferredKeys = ["url", "image", "imageUrl", "webUrl", "src", "href"]
+            for key in preferredKeys {
+                if let value = dict[key], let extracted = extractURLString(from: value) {
+                    return extracted
+                }
+            }
+            for value in dict.values {
+                if let extracted = extractURLString(from: value) {
+                    return extracted
+                }
+            }
+        }
+
+        if let array = object as? [Any] {
+            for item in array {
+                if let extracted = extractURLString(from: item) {
+                    return extracted
+                }
+            }
+        }
+
+        return nil
     }
 
     private static func parseAeroDate(_ string: String?) -> Date? {
@@ -269,10 +491,10 @@ private struct AeroTime: Codable {
 }
 
 private extension DateFormatter {
-    static let apiDate: DateFormatter = {
+    static let apiDateLocal: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.timeZone = TimeZone.current
         f.locale = Locale(identifier: "en_US_POSIX")
         return f
     }()

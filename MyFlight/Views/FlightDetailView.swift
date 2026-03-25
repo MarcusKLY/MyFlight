@@ -144,6 +144,21 @@ struct FlightDetailView: View {
         return formatter.string(from: flight.scheduledDeparture)
     }
 
+    private var arrivalDayOffset: Int {
+        guard let scheduledArrival = flight.scheduledArrival else { return 0 }
+        return dayOffset(
+            departure: flight.scheduledDeparture,
+            departureTimezone: flight.origin.timezone,
+            arrival: scheduledArrival,
+            arrivalTimezone: flight.destination.timezone
+        )
+    }
+
+    private var arrivalDayOffsetSuffix: String? {
+        guard arrivalDayOffset > 0 else { return nil }
+        return "+\(arrivalDayOffset)"
+    }
+
     private var distanceFormatted: String? {
         if let km = flight.distanceKm {
             let kmInt = Int(km)
@@ -167,27 +182,30 @@ struct FlightDetailView: View {
     }
 
     private var flightStatusText: String {
-        if let actualArrival = flight.actualArrival {
-            if let scheduledArrival = flight.scheduledArrival, actualArrival > scheduledArrival {
+        if flight.flightStatus == .arrived {
+            if let delay = flight.arrivalDelayMinutes, delay > 0 {
                 return "Arrived Late"
             }
             return "Arrived"
         }
 
+        if flight.flightStatus == .enRoute {
+            return "En Route"
+        }
+
         switch flight.flightStatus {
         case .onTime: return "On Time"
         case .delayed: return "Delayed"
-        case .arrived: return "Arrived"
         case .cancelled: return "Cancelled"
-        case .enRoute: return "En Route"
         case .departed: return "Departed"
         case .expected: return "Expected"
+        default: return flight.flightStatus.rawValue
         }
     }
 
     private var statusColor: Color {
-        if let actualArrival = flight.actualArrival {
-            if let scheduledArrival = flight.scheduledArrival, actualArrival > scheduledArrival {
+        if flight.flightStatus == .arrived {
+            if let delay = flight.arrivalDelayMinutes, delay > 0 {
                 return Color.orange
             }
             return Color.green
@@ -196,11 +214,11 @@ struct FlightDetailView: View {
         switch flight.flightStatus {
         case .onTime: return Color.green
         case .delayed: return Color.orange
-        case .arrived: return Color.green
         case .cancelled: return Color.red
         case .enRoute: return Color.blue
         case .departed: return Color.blue
         case .expected: return Color.secondary
+        default: return Color.secondary
         }
     }
 
@@ -216,7 +234,7 @@ struct FlightDetailView: View {
     // MARK: - Granular Timeline Section
 
     private var timelineSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionLabel("Timeline")
 
             HStack(alignment: .top, spacing: 16) {
@@ -224,7 +242,7 @@ struct FlightDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Divider()
-                    .frame(height: 160)
+                    .frame(height: 142)
 
                 arrivalTimeline
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -241,49 +259,16 @@ struct FlightDetailView: View {
                 timezone: flight.origin.timezone
             )
 
-            timelineEvent(
-                icon: "calendar.badge.clock",
-                label: "Scheduled",
-                date: flight.scheduledDeparture,
-                timezone: flight.origin.timezone,
-                style: .scheduled,
-                delayMinutes: nil
-            )
-
-            if let est = flight.estimatedDeparture, !isSameMinute(est, flight.scheduledDeparture) {
-                timelineConnector()
+            let events = departureTimelineEvents
+            ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                if index > 0 { timelineConnector() }
                 timelineEvent(
-                    icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-                    label: "Estimated",
-                    date: est,
-                    timezone: flight.origin.timezone,
-                    style: .estimated,
-                    delayMinutes: minuteDelta(est, from: flight.scheduledDeparture)
-                )
-            }
-
-            let departureActual = flight.actualDeparture ?? flight.runwayDeparture
-            if let dep = departureActual, !isSameMinute(dep, flight.scheduledDeparture) {
-                timelineConnector()
-                timelineEvent(
-                    icon: "door.left.hand.open",
-                    label: "Gate Out",
-                    date: dep,
-                    timezone: flight.origin.timezone,
-                    style: dep > flight.scheduledDeparture ? .delayed : .actual,
-                    delayMinutes: minuteDelta(dep, from: flight.scheduledDeparture)
-                )
-            }
-
-            if let takeoff = flight.runwayDeparture ?? flight.actualDeparture, !isSameMinute(takeoff, flight.scheduledDeparture) {
-                timelineConnector()
-                timelineEvent(
-                    icon: "airplane.departure",
-                    label: flight.runwayDeparture != nil ? "Takeoff" : "Takeoff (actual)",
-                    date: takeoff,
-                    timezone: flight.origin.timezone,
-                    style: takeoff > flight.scheduledDeparture ? .delayed : .actual,
-                    delayMinutes: minuteDelta(takeoff, from: flight.scheduledDeparture)
+                    icon: event.icon,
+                    label: event.label,
+                    date: event.date,
+                    timezone: event.timezone,
+                    style: event.style,
+                    delayMinutes: event.delayMinutes
                 )
             }
         }
@@ -295,100 +280,38 @@ struct FlightDetailView: View {
                 icon: "airplane.arrival",
                 title: "Arrival",
                 iata: flight.destination.iataCode,
-                timezone: flight.destination.timezone
+                timezone: flight.destination.timezone,
+                dayOffsetSuffix: arrivalDayOffsetSuffix
             )
 
-            if let scheduled = flight.scheduledArrival {
-                timelineEvent(
-                    icon: "calendar.badge.clock",
-                    label: "Scheduled",
-                    date: scheduled,
-                    timezone: flight.destination.timezone,
-                    style: .scheduled,
-                    delayMinutes: nil
-                )
-                timelineConnector()
-            }
-
-            if let est = flight.estimatedArrival, let scheduled = flight.scheduledArrival, !isSameMinute(est, scheduled) {
-                timelineEvent(
-                    icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-                    label: "Estimated",
-                    date: est,
-                    timezone: flight.destination.timezone,
-                    style: .estimated,
-                    delayMinutes: minuteDelta(est, from: scheduled)
-                )
-                timelineConnector()
-            }
-
-            // Show predicted arrival for in-flight flights (more accurate than estimated)
-            if let predicted = flight.predictedArrival,
-               let scheduled = flight.scheduledArrival,
-               !isSameMinute(predicted, scheduled),
-               flight.estimatedArrival == nil || !isSameMinute(predicted, flight.estimatedArrival!),
-               flight.runwayArrival == nil && flight.actualArrival == nil {
-                timelineEvent(
-                    icon: "location.fill",
-                    label: "Predicted",
-                    date: predicted,
-                    timezone: flight.destination.timezone,
-                    style: predicted > scheduled ? .delayed : .actual,
-                    delayMinutes: minuteDelta(predicted, from: scheduled)
-                )
-                timelineConnector()
-            }
-
-            let arrivalLanding = flight.runwayArrival ?? flight.actualArrival
-            if let landing = arrivalLanding {
-                timelineEvent(
-                    icon: "airplane.arrival",
-                    label: flight.runwayArrival != nil ? "Landing" : "Landing (actual)",
-                    date: landing,
-                    timezone: flight.destination.timezone,
-                    style: flight.scheduledArrival.map { landing > $0 ? .delayed : .actual } ?? .actual,
-                    delayMinutes: flight.scheduledArrival.map { minuteDelta(landing, from: $0) }
-                )
-
-                if let actual = flight.actualArrival, !isSameMinute(actual, landing) {
-                    timelineConnector()
-                } else if flight.actualArrival == nil, flight.runwayArrival != nil {
-                    timelineConnector()
-                }
-            }
-
-            if let gateIn = flight.actualArrival {
-                let scheduled = flight.scheduledArrival
-                let showGateIn = flight.runwayArrival.map { !isSameMinute($0, gateIn) } ?? true
-                if showGateIn {
-                    if flight.runwayArrival != nil { timelineConnector() }
-                    timelineEvent(
-                        icon: "door.right.hand.open",
-                        label: "Gate In",
-                        date: gateIn,
-                        timezone: flight.destination.timezone,
-                        style: scheduled.map { gateIn > $0 ? .delayed : .actual } ?? .actual,
-                        delayMinutes: scheduled.map { minuteDelta(gateIn, from: $0) } ?? nil
-                    )
-                    timelineConnector()
-                }
-            }
-
-            if flight.scheduledArrival == nil && flight.estimatedArrival == nil && flight.predictedArrival == nil && flight.runwayArrival == nil && flight.actualArrival == nil {
+            let events = arrivalTimelineEvents
+            if events.isEmpty {
                 Text("—")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 8)
+            } else {
+                ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                    if index > 0 { timelineConnector() }
+                    timelineEvent(
+                        icon: event.icon,
+                        label: event.label,
+                        date: event.date,
+                        timezone: event.timezone,
+                        style: event.style,
+                        delayMinutes: event.delayMinutes
+                    )
+                }
             }
         }
     }
 
-    private func timelineHeader(icon: String, title: String, iata: String, timezone: String?) -> some View {
+    private func timelineHeader(icon: String, title: String, iata: String, timezone: String?, dayOffsetSuffix: String? = nil) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .font(.caption)
                 .foregroundStyle(.blue)
-            Text("\(title) · \(iata)")
+            Text("\(title) · \(iata)\(dayOffsetSuffix.map { " \($0)" } ?? "")")
                 .font(.caption)
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
@@ -398,11 +321,239 @@ struct FlightDetailView: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.bottom, 8)
+        .padding(.bottom, 6)
     }
 
     private enum TimelineEventStyle {
         case scheduled, estimated, actual, delayed
+    }
+
+    private struct TimelineEventItem: Identifiable {
+        let icon: String
+        let label: String
+        let date: Date
+        let timezone: String?
+        let style: TimelineEventStyle
+        let delayMinutes: Int?
+        let precedence: Int
+        let dedupGroup: String?
+
+        var id: String {
+            "\(label)-\(date.timeIntervalSince1970)-\(icon)"
+        }
+    }
+
+    private var departureTimelineEvents: [TimelineEventItem] {
+        var events: [TimelineEventItem] = [
+            TimelineEventItem(
+                icon: "calendar.badge.clock",
+                label: "Scheduled",
+                date: flight.scheduledDeparture,
+                timezone: flight.origin.timezone,
+                style: .scheduled,
+                delayMinutes: nil,
+                precedence: 0,
+                dedupGroup: nil
+            )
+        ]
+
+        let confirmedGateOut = flight.actualDeparture ?? flight.revisedDeparture
+        let forceGateOutConfirmation = (flight.flightStatus == .enRoute || flight.flightStatus == .arrived) &&
+            (confirmedGateOut.map { isSameMinute($0, flight.scheduledDeparture) } ?? false)
+        let hasActualDepartureEvent = confirmedGateOut != nil || flight.runwayDeparture != nil
+
+        if !hasActualDepartureEvent,
+           let estimated = flight.estimatedDeparture {
+            events.append(
+                TimelineEventItem(
+                    icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                    label: "Estimated",
+                    date: estimated,
+                    timezone: flight.origin.timezone,
+                    style: .estimated,
+                    delayMinutes: minuteDelta(estimated, from: flight.scheduledDeparture),
+                    precedence: 1,
+                    dedupGroup: nil
+                )
+            )
+        }
+
+        if let gateOut = confirmedGateOut {
+            events.append(
+                TimelineEventItem(
+                    icon: "door.left.hand.open",
+                    label: "Gate Out",
+                    date: gateOut,
+                    timezone: flight.origin.timezone,
+                    style: gateOut > flight.scheduledDeparture ? .delayed : .actual,
+                    delayMinutes: minuteDelta(gateOut, from: flight.scheduledDeparture),
+                    precedence: 2,
+                    dedupGroup: forceGateOutConfirmation ? "gateout-confirmed" : nil
+                )
+            )
+        }
+
+        if let takeoff = flight.runwayDeparture {
+            events.append(
+                TimelineEventItem(
+                    icon: "airplane.departure",
+                    label: "Takeoff",
+                    date: takeoff,
+                    timezone: flight.origin.timezone,
+                    style: takeoff > flight.scheduledDeparture ? .delayed : .actual,
+                    delayMinutes: minuteDelta(takeoff, from: flight.scheduledDeparture),
+                    precedence: 3,
+                    dedupGroup: nil
+                )
+            )
+        }
+
+        return deduplicatedTimelineEvents(events)
+    }
+
+    private var arrivalTimelineEvents: [TimelineEventItem] {
+        var events: [TimelineEventItem] = []
+
+        if let scheduled = flight.scheduledArrival {
+            events.append(
+                TimelineEventItem(
+                    icon: "calendar.badge.clock",
+                    label: "Scheduled",
+                    date: scheduled,
+                    timezone: flight.destination.timezone,
+                    style: .scheduled,
+                    delayMinutes: nil,
+                    precedence: 0,
+                    dedupGroup: nil
+                )
+            )
+        }
+
+        let arrivedStatus = flight.flightStatus == .arrived
+        let fallbackGateIn = arrivedStatus && flight.actualArrival == nil && flight.runwayArrival == nil ? flight.revisedArrival : nil
+        let confirmedLanding = flight.runwayArrival
+        let confirmedGateIn = flight.actualArrival ?? fallbackGateIn
+        let hasConfirmedArrivalEvent = confirmedLanding != nil || confirmedGateIn != nil
+
+        let expectedArrival = (arrivedStatus ? flight.estimatedArrival : (flight.revisedArrival ?? flight.estimatedArrival))
+
+        if !hasConfirmedArrivalEvent,
+           let estimated = expectedArrival {
+            let style: TimelineEventStyle
+            if let scheduled = flight.scheduledArrival {
+                style = estimated > scheduled ? .delayed : .estimated
+            } else {
+                style = .estimated
+            }
+            events.append(
+                TimelineEventItem(
+                    icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                    label: "Estimated",
+                    date: estimated,
+                    timezone: flight.destination.timezone,
+                    style: style,
+                    delayMinutes: flight.scheduledArrival.map { minuteDelta(estimated, from: $0) },
+                    precedence: 1,
+                    dedupGroup: nil
+                )
+            )
+        }
+
+        if !hasConfirmedArrivalEvent,
+           let predicted = flight.predictedArrival {
+            let style: TimelineEventStyle
+            if let scheduled = flight.scheduledArrival {
+                style = predicted > scheduled ? .delayed : .actual
+            } else {
+                style = .estimated
+            }
+            events.append(
+                TimelineEventItem(
+                    icon: "location.fill",
+                    label: "Predicted",
+                    date: predicted,
+                    timezone: flight.destination.timezone,
+                    style: style,
+                    delayMinutes: flight.scheduledArrival.map { minuteDelta(predicted, from: $0) },
+                    precedence: 1,
+                    dedupGroup: nil
+                )
+            )
+        }
+
+        if let landing = confirmedLanding {
+            let style: TimelineEventStyle
+            if let scheduled = flight.scheduledArrival {
+                style = landing > scheduled ? .delayed : .actual
+            } else {
+                style = .actual
+            }
+            events.append(
+                TimelineEventItem(
+                    icon: "airplane.arrival",
+                    label: "Landing",
+                    date: landing,
+                    timezone: flight.destination.timezone,
+                    style: style,
+                    delayMinutes: flight.scheduledArrival.map { minuteDelta(landing, from: $0) },
+                    precedence: 3,
+                    dedupGroup: nil
+                )
+            )
+        }
+
+        if let gateIn = confirmedGateIn {
+            let style: TimelineEventStyle
+            if let scheduled = flight.scheduledArrival {
+                style = gateIn > scheduled ? .delayed : .actual
+            } else {
+                style = .actual
+            }
+            events.append(
+                TimelineEventItem(
+                    icon: "door.right.hand.open",
+                    label: "Gate In",
+                    date: gateIn,
+                    timezone: flight.destination.timezone,
+                    style: style,
+                    delayMinutes: flight.scheduledArrival.map { minuteDelta(gateIn, from: $0) },
+                    precedence: 2,
+                    dedupGroup: nil
+                )
+            )
+        }
+
+        return deduplicatedTimelineEvents(events)
+    }
+
+    private func deduplicatedTimelineEvents(_ events: [TimelineEventItem]) -> [TimelineEventItem] {
+        var winners: [String: TimelineEventItem] = [:]
+        var keyOrder: [String] = []
+
+        for event in events {
+            let key = dedupKey(for: event)
+            if let existing = winners[key] {
+                if event.precedence < existing.precedence {
+                    winners[key] = event
+                }
+            } else {
+                winners[key] = event
+                keyOrder.append(key)
+            }
+        }
+
+        return keyOrder.compactMap { winners[$0] }
+    }
+
+    private func dedupKey(for event: TimelineEventItem) -> String {
+        let minuteBucket = Int(minuteFloor(event.date).timeIntervalSince1970)
+        return "\(minuteBucket):\(event.dedupGroup ?? "default")"
+    }
+
+    private func minuteFloor(_ date: Date) -> Date {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        return calendar.date(from: components) ?? date
     }
 
     private func timelineEvent(
@@ -430,27 +581,29 @@ struct FlightDetailView: View {
                 Text(label)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                HStack(spacing: 4) {
-                    // Airport time
-                    Text(localTime(date: date, timezone: timezone))
-                        .font(.system(.subheadline, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundStyle(eventColor(style))
 
-                    // Device local time (for reference)
-                    Text("(\(deviceLocalTime(date)))")
+                Text(localTime(date: date, timezone: timezone))
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(eventColor(style))
+
+                if shouldShowDeviceLocalTime(for: timezone) {
+                    Text(deviceLocalTime(date))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-
-                    if let delta = delayMinutes {
-                        Text(delayLabel(delta))
-                            .font(.caption2)
-                            .fontWeight(.medium)
-                            .foregroundStyle(delta > 0 ? .orange : .green)
-                    }
                 }
             }
+
+            Spacer()
+
+            if let delta = delayMinutes {
+                Text(delayLabel(delta))
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .foregroundStyle(delta > 0 ? .orange : .green)
+            }
         }
+        .frame(minHeight: 52, alignment: .top)
     }
 
     private func deviceLocalTime(_ date: Date) -> String {
@@ -460,12 +613,20 @@ struct FlightDetailView: View {
         return f.string(from: date)
     }
 
+    private func shouldShowDeviceLocalTime(for airportTimezone: String?) -> Bool {
+        guard let airportTimezone,
+              let airportZone = TimeZone(identifier: airportTimezone) else {
+            return true
+        }
+        return airportZone.identifier != TimeZone.current.identifier
+    }
+
     private func timelineConnector() -> some View {
         HStack {
             Spacer().frame(width: 11)
             Rectangle()
                 .fill(Color.secondary.opacity(0.25))
-                .frame(width: 2, height: 10)
+                .frame(width: 2, height: 6)
         }
     }
 
@@ -534,12 +695,14 @@ struct FlightDetailView: View {
     // MARK: - Aircraft Section
 
     private var hasAircraftInfo: Bool {
-        flight.aircraftModel != nil || flight.tailNumber != nil || flight.callSign != nil
+        flight.aircraftModel != nil || flight.aircraftImageUrl != nil || flight.tailNumber != nil || flight.callSign != nil || flight.aircraftAge != nil
     }
 
     private var aircraftSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             sectionLabel("Aircraft")
+
+            aircraftHeroImage
 
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -549,10 +712,53 @@ struct FlightDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 8) {
+                    infoRow(icon: "hourglass", label: "Age", value: flight.aircraftAge)
                     infoRow(icon: "antenna.radiowaves.left.and.right", label: "Call Sign", value: flight.callSign)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    private var aircraftHeroImage: some View {
+        Group {
+            if let imageUrl = flight.aircraftImageUrl,
+               let url = URL(string: imageUrl) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .empty:
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color.secondary.opacity(0.12))
+                            ProgressView()
+                        }
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure:
+                        aircraftImagePlaceholder
+                    @unknown default:
+                        aircraftImagePlaceholder
+                    }
+                }
+            } else {
+                aircraftImagePlaceholder
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 190)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var aircraftImagePlaceholder: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.secondary.opacity(0.12))
+            Image(systemName: "airplane.circle.fill")
+                .font(.system(size: 44, weight: .semibold))
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -624,6 +830,22 @@ struct FlightDetailView: View {
         Int(date.timeIntervalSince(reference) / 60)
     }
 
+    private func dayOffset(departure: Date, departureTimezone: String?, arrival: Date, arrivalTimezone: String?) -> Int {
+        var depCalendar = Calendar.current
+        if let departureTimezone, let zone = TimeZone(identifier: departureTimezone) {
+            depCalendar.timeZone = zone
+        }
+
+        var arrCalendar = Calendar.current
+        if let arrivalTimezone, let zone = TimeZone(identifier: arrivalTimezone) {
+            arrCalendar.timeZone = zone
+        }
+
+        let depStart = depCalendar.startOfDay(for: departure)
+        let arrStart = arrCalendar.startOfDay(for: arrival)
+        return Calendar.current.dateComponents([.day], from: depStart, to: arrStart).day ?? 0
+    }
+
     private func isSameMinute(_ a: Date, _ b: Date) -> Bool {
         Calendar.current.isDate(a, equalTo: b, toGranularity: .minute)
     }
@@ -633,6 +855,29 @@ struct FlightDetailView: View {
 
 struct LiveProgressBar: View {
     let flight: Flight
+
+    private var arrivalDayOffset: Int {
+        guard let scheduledArrival = flight.scheduledArrival else { return 0 }
+
+        var depCalendar = Calendar.current
+        if let tz = flight.origin.timezone, let zone = TimeZone(identifier: tz) {
+            depCalendar.timeZone = zone
+        }
+
+        var arrCalendar = Calendar.current
+        if let tz = flight.destination.timezone, let zone = TimeZone(identifier: tz) {
+            arrCalendar.timeZone = zone
+        }
+
+        let depStart = depCalendar.startOfDay(for: flight.scheduledDeparture)
+        let arrStart = arrCalendar.startOfDay(for: scheduledArrival)
+        return Calendar.current.dateComponents([.day], from: depStart, to: arrStart).day ?? 0
+    }
+
+    private var arrivalDayOffsetSuffix: String {
+        guard arrivalDayOffset > 0 else { return "" }
+        return " +\(arrivalDayOffset)"
+    }
 
     private var progress: Double {
         flight.flightProgress ?? progressFromScheduled
@@ -743,7 +988,7 @@ struct LiveProgressBar: View {
                             .fontWeight(.bold)
                         let arrTime = (flight.runwayArrival ?? flight.actualArrival) ?? flight.scheduledArrival ?? arrival
                         let hasArrived = flight.runwayArrival != nil || flight.actualArrival != nil
-                        Text(localTime(date: arrTime, timezone: flight.destination.timezone))
+                        Text("\(localTime(date: arrTime, timezone: flight.destination.timezone))\(arrivalDayOffsetSuffix)")
                             .font(.caption2)
                             .foregroundStyle(hasArrived ? .green : .secondary)
                             .fontWeight(hasArrived ? .semibold : .regular)

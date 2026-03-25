@@ -225,10 +225,12 @@ struct LiveMapTab: View {
                         origin: origin,
                         destination: destination,
                         scheduledDeparture: draft.scheduledDeparture,
+                        revisedDeparture: draft.revisedDeparture,
                         estimatedDeparture: draft.estimatedDeparture,
                         actualDeparture: draft.actualDeparture,
                         runwayDeparture: draft.runwayDeparture,
                         runwayArrival: draft.runwayArrival,
+                        revisedArrival: draft.revisedArrival,
                         estimatedArrival: draft.estimatedArrival,
                         predictedArrival: draft.predictedArrival,
                         scheduledArrival: draft.scheduledArrival,
@@ -242,6 +244,8 @@ struct LiveMapTab: View {
                         arrivalRunway: draft.arrivalRunway,
                         baggageClaim: draft.baggageClaim,
                         aircraftModel: draft.aircraftModel,
+                        aircraftImageUrl: draft.aircraftImageUrl,
+                        aircraftAge: draft.aircraftAge,
                         tailNumber: draft.tailNumber,
                         distanceKm: draft.distanceKm,
                         distanceNm: draft.distanceNm,
@@ -744,15 +748,12 @@ private struct AddFlightSheet: View {
             .navigationTitle("Add Flight")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { dismiss() }) {
-                        Text("Cancel")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.primary)
                     }
-                    .buttonStyle(.borderless)
                 }
             }
             .sheet(isPresented: $showManualEntry) {
@@ -800,10 +801,12 @@ private struct AddFlightSheet: View {
             originTimezone: result.originTimezone,
             destinationTimezone: result.destinationTimezone,
             scheduledDeparture: result.scheduledDeparture,
+            revisedDeparture: result.revisedDeparture,
             estimatedDeparture: result.estimatedDeparture,
             actualDeparture: result.actualDeparture,
             runwayDeparture: result.runwayDeparture,
             runwayArrival: result.runwayArrival,
+            revisedArrival: result.revisedArrival,
             estimatedArrival: result.estimatedArrival,
             predictedArrival: result.predictedArrival,
             scheduledArrival: result.scheduledArrival,
@@ -817,6 +820,8 @@ private struct AddFlightSheet: View {
             arrivalRunway: result.arrivalRunway,
             baggageClaim: result.baggageClaim,
             aircraftModel: result.aircraftModel,
+            aircraftImageUrl: result.aircraftImageUrl,
+            aircraftAge: result.aircraftAge,
             tailNumber: result.tailNumber,
             distanceKm: result.distanceKm,
             distanceNm: result.distanceNm,
@@ -851,10 +856,12 @@ private struct AddFlightSheet: View {
             origin: origin,
             destination: destination,
             scheduledDeparture: result.scheduledDeparture,
+            revisedDeparture: result.revisedDeparture,
             estimatedDeparture: result.estimatedDeparture,
             actualDeparture: result.actualDeparture,
             runwayDeparture: result.runwayDeparture,
             runwayArrival: result.runwayArrival,
+            revisedArrival: result.revisedArrival,
             estimatedArrival: result.estimatedArrival,
             predictedArrival: result.predictedArrival,
             scheduledArrival: result.scheduledArrival,
@@ -868,6 +875,8 @@ private struct AddFlightSheet: View {
             arrivalRunway: result.arrivalRunway,
             baggageClaim: result.baggageClaim,
             aircraftModel: result.aircraftModel,
+            aircraftImageUrl: result.aircraftImageUrl,
+            aircraftAge: result.aircraftAge,
             tailNumber: result.tailNumber,
             distanceKm: result.distanceKm,
             distanceNm: result.distanceNm,
@@ -903,6 +912,29 @@ private struct SearchResultCard: View {
     let result: FlightLookupResult
     let onAdd: () -> Void
     let onTap: () -> Void
+
+    private var arrivalDayOffset: Int {
+        guard let arrival = result.scheduledArrival else { return 0 }
+
+        var depCalendar = Calendar.current
+        if let tz = result.originTimezone, let zone = TimeZone(identifier: tz) {
+            depCalendar.timeZone = zone
+        }
+
+        var arrCalendar = Calendar.current
+        if let tz = result.destinationTimezone, let zone = TimeZone(identifier: tz) {
+            arrCalendar.timeZone = zone
+        }
+
+        let depStart = depCalendar.startOfDay(for: result.scheduledDeparture)
+        let arrStart = arrCalendar.startOfDay(for: arrival)
+        return Calendar.current.dateComponents([.day], from: depStart, to: arrStart).day ?? 0
+    }
+
+    private var arrivalDayOffsetSuffix: String {
+        guard arrivalDayOffset > 0 else { return "" }
+        return " +\(arrivalDayOffset)"
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -973,7 +1005,7 @@ private struct SearchResultCard: View {
                         Text("Arrives")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.secondary)
-                        Text(arrival, format: .dateTime.hour().minute())
+                        Text("\(arrival.formatted(.dateTime.hour().minute()))\(arrivalDayOffsetSuffix)")
                             .font(.system(size: 16, weight: .semibold))
                     }
                 }
@@ -1110,10 +1142,12 @@ private struct ManualFlightEntrySheet: View {
             originTimezone: nil,
             destinationTimezone: nil,
             scheduledDeparture: scheduledDeparture,
+            revisedDeparture: nil,
             estimatedDeparture: nil,
             actualDeparture: nil,
             runwayDeparture: nil,
             runwayArrival: nil,
+            revisedArrival: nil,
             estimatedArrival: nil,
             predictedArrival: nil,
             scheduledArrival: scheduledArrival,
@@ -1127,6 +1161,8 @@ private struct ManualFlightEntrySheet: View {
             arrivalRunway: nil,
             baggageClaim: nil,
             aircraftModel: nil,
+            aircraftImageUrl: nil,
+            aircraftAge: nil,
             tailNumber: nil,
             distanceKm: nil,
             distanceNm: nil,
@@ -1155,10 +1191,12 @@ private struct FlightDraft {
     let originTimezone: String?
     let destinationTimezone: String?
     let scheduledDeparture: Date
+    let revisedDeparture: Date?
     let estimatedDeparture: Date?
     let actualDeparture: Date?
     let runwayDeparture: Date?
     let runwayArrival: Date?
+    let revisedArrival: Date?
     let estimatedArrival: Date?
     let predictedArrival: Date?
     let scheduledArrival: Date?
@@ -1172,6 +1210,8 @@ private struct FlightDraft {
     let arrivalRunway: String?
     let baggageClaim: String?
     let aircraftModel: String?
+    let aircraftImageUrl: String?
+    let aircraftAge: String?
     let tailNumber: String?
     let distanceKm: Double?
     let distanceNm: Double?

@@ -1,3 +1,5 @@
 // Release configuration
 FLIGHT_API_KEY =
+FLIGHT_API_KEYS =
+AIRLABS_API_KEY =
 #include? "Secrets.xcconfig"

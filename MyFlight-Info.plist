@@ -20,6 +20,10 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>FLIGHT_API_KEY</key>
 	<string>$(FLIGHT_API_KEY)</string>
+	<key>FLIGHT_API_KEYS</key>
+	<string>$(FLIGHT_API_KEYS)</string>
+	<key>AIRLABS_API_KEY</key>
+	<string>$(AIRLABS_API_KEY)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSSupportsLiveActivities</key>
