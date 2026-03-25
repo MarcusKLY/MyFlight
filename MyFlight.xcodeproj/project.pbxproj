@@ -6,34 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		A1B2C3012F72A00100B00A01 /* MyFlightLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3042F72A00100B00A04 /* MyFlightLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-/* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		A1B2C3022F72A00100B00A02 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = EE4441242F71D855003B00A7 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = A1B2C3072F72A00100B00A07;
-			remoteInfo = MyFlightLiveActivity;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		A1B2C3032F72A00100B00A03 /* Embed App Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				A1B2C3012F72A00100B00A01 /* MyFlightLiveActivity.appex in Embed App Extensions */,
-			);
-			name = "Embed App Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXFileReference section */
 		A1B2C3042F72A00100B00A04 /* MyFlightLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MyFlightLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B7A100001122334455667701 /* Config/Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Debug.xcconfig; sourceTree = "<group>"; };
@@ -210,14 +182,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		A1B2C30A2F72A00100B00A0A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = A1B2C3072F72A00100B00A07 /* MyFlightLiveActivity */;
-			targetProxy = A1B2C3022F72A00100B00A02 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A1B2C30B2F72A00100B00A0B /* Debug */ = {

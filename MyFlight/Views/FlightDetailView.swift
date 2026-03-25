@@ -59,9 +59,19 @@ struct FlightDetailView: View {
 
     private var routeHeader: some View {
         VStack(spacing: 12) {
-            Text(flight.airline)
+            // Date row
+            Text(flightDateFormatted)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .fontWeight(.medium)
+                .foregroundStyle(.primary)
+
+            // Airline row with logo
+            HStack(spacing: 8) {
+                AirlineLogoView(airlineIATA: flight.airlineIATA, airlineName: flight.airline, size: 28)
+                Text(flight.airline)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
             HStack(alignment: .center, spacing: 0) {
                 VStack(spacing: 4) {
@@ -82,6 +92,11 @@ struct FlightDetailView: View {
                         Text(duration)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                    }
+                    if let distance = distanceFormatted {
+                        Text(distance)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -119,6 +134,27 @@ struct FlightDetailView: View {
         .padding(.top, 20)
     }
 
+    private var flightDateFormatted: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .full
+        formatter.timeStyle = .none
+        if let tz = flight.origin.timezone, let zone = TimeZone(identifier: tz) {
+            formatter.timeZone = zone
+        }
+        return formatter.string(from: flight.scheduledDeparture)
+    }
+
+    private var distanceFormatted: String? {
+        if let km = flight.distanceKm {
+            let kmInt = Int(km)
+            if let nm = flight.distanceNm {
+                return "\(kmInt) km (\(Int(nm)) nm)"
+            }
+            return "\(kmInt) km"
+        }
+        return nil
+    }
+
     private var statusBadge: some View {
         Text(flightStatusText)
             .font(.caption)
@@ -143,6 +179,9 @@ struct FlightDetailView: View {
         case .delayed: return "Delayed"
         case .arrived: return "Arrived"
         case .cancelled: return "Cancelled"
+        case .enRoute: return "En Route"
+        case .departed: return "Departed"
+        case .expected: return "Expected"
         }
     }
 
@@ -159,6 +198,9 @@ struct FlightDetailView: View {
         case .delayed: return Color.orange
         case .arrived: return Color.green
         case .cancelled: return Color.red
+        case .enRoute: return Color.blue
+        case .departed: return Color.blue
+        case .expected: return Color.secondary
         }
     }
 
@@ -280,6 +322,23 @@ struct FlightDetailView: View {
                 timelineConnector()
             }
 
+            // Show predicted arrival for in-flight flights (more accurate than estimated)
+            if let predicted = flight.predictedArrival,
+               let scheduled = flight.scheduledArrival,
+               !isSameMinute(predicted, scheduled),
+               flight.estimatedArrival == nil || !isSameMinute(predicted, flight.estimatedArrival!),
+               flight.runwayArrival == nil && flight.actualArrival == nil {
+                timelineEvent(
+                    icon: "location.fill",
+                    label: "Predicted",
+                    date: predicted,
+                    timezone: flight.destination.timezone,
+                    style: predicted > scheduled ? .delayed : .actual,
+                    delayMinutes: minuteDelta(predicted, from: scheduled)
+                )
+                timelineConnector()
+            }
+
             let arrivalLanding = flight.runwayArrival ?? flight.actualArrival
             if let landing = arrivalLanding {
                 timelineEvent(
@@ -315,7 +374,7 @@ struct FlightDetailView: View {
                 }
             }
 
-            if flight.scheduledArrival == nil && flight.estimatedArrival == nil && flight.runwayArrival == nil && flight.actualArrival == nil {
+            if flight.scheduledArrival == nil && flight.estimatedArrival == nil && flight.predictedArrival == nil && flight.runwayArrival == nil && flight.actualArrival == nil {
                 Text("—")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -372,10 +431,16 @@ struct FlightDetailView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 4) {
+                    // Airport time
                     Text(localTime(date: date, timezone: timezone))
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundStyle(eventColor(style))
+
+                    // Device local time (for reference)
+                    Text("(\(deviceLocalTime(date)))")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
 
                     if let delta = delayMinutes {
                         Text(delayLabel(delta))
@@ -386,6 +451,13 @@ struct FlightDetailView: View {
                 }
             }
         }
+    }
+
+    private func deviceLocalTime(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.timeZone = TimeZone.current
+        return f.string(from: date)
     }
 
     private func timelineConnector() -> some View {
@@ -431,7 +503,8 @@ struct FlightDetailView: View {
     private var hasGateOrTerminalInfo: Bool {
         flight.departureGate != nil || flight.departureTerminal != nil ||
         flight.arrivalGate != nil || flight.arrivalTerminal != nil ||
-        flight.baggageClaim != nil
+        flight.baggageClaim != nil || flight.departureCheckInDesk != nil ||
+        flight.departureRunway != nil || flight.arrivalRunway != nil
     }
 
     private var gatesSection: some View {
@@ -442,6 +515,8 @@ struct FlightDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     infoRow(icon: "airplane.departure", label: "Dep Terminal", value: flight.departureTerminal)
                     infoRow(icon: "door.left.hand.open", label: "Dep Gate", value: flight.departureGate)
+                    infoRow(icon: "checklist", label: "Check-in", value: flight.departureCheckInDesk)
+                    infoRow(icon: "road.lanes", label: "Dep Runway", value: flight.departureRunway)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -449,6 +524,7 @@ struct FlightDetailView: View {
                     infoRow(icon: "airplane.arrival", label: "Arr Terminal", value: flight.arrivalTerminal)
                     infoRow(icon: "door.right.hand.open", label: "Arr Gate", value: flight.arrivalGate)
                     infoRow(icon: "suitcase.rolling", label: "Baggage", value: flight.baggageClaim)
+                    infoRow(icon: "road.lanes", label: "Arr Runway", value: flight.arrivalRunway)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -458,7 +534,7 @@ struct FlightDetailView: View {
     // MARK: - Aircraft Section
 
     private var hasAircraftInfo: Bool {
-        flight.aircraftModel != nil || flight.tailNumber != nil
+        flight.aircraftModel != nil || flight.tailNumber != nil || flight.callSign != nil
     }
 
     private var aircraftSection: some View {
@@ -466,10 +542,16 @@ struct FlightDetailView: View {
             sectionLabel("Aircraft")
 
             HStack(alignment: .top, spacing: 0) {
-                infoRow(icon: "airplane.circle", label: "Type", value: flight.aircraftModel)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                infoRow(icon: "tag", label: "Tail", value: flight.tailNumber)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 8) {
+                    infoRow(icon: "airplane.circle", label: "Type", value: flight.aircraftModel)
+                    infoRow(icon: "tag", label: "Tail", value: flight.tailNumber)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    infoRow(icon: "antenna.radiowaves.left.and.right", label: "Call Sign", value: flight.callSign)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -557,8 +639,13 @@ struct LiveProgressBar: View {
     }
 
     private var progressFromScheduled: Double {
-        guard let arrival = flight.scheduledArrival else { return 0 }
-        let departure = flight.scheduledDeparture
+        // For arrived flights, always show 100%
+        if flight.runwayArrival != nil || flight.actualArrival != nil {
+            return 1.0
+        }
+
+        guard let arrival = flight.predictedArrival ?? flight.estimatedArrival ?? flight.scheduledArrival else { return 0 }
+        let departure = flight.runwayDeparture ?? flight.actualDeparture ?? flight.scheduledDeparture
         let now = Date()
         guard now >= departure else { return 0 }
         guard now <= arrival else { return 1 }
@@ -568,8 +655,12 @@ struct LiveProgressBar: View {
     }
 
     private var isInFlight: Bool {
+        // Check if flight has landed
+        if flight.runwayArrival != nil || flight.actualArrival != nil {
+            return false
+        }
         let departure = flight.runwayDeparture ?? flight.actualDeparture ?? flight.scheduledDeparture
-        let arrival = flight.runwayArrival ?? flight.actualArrival ?? flight.scheduledArrival ?? Date.distantFuture
+        let arrival = flight.predictedArrival ?? flight.estimatedArrival ?? flight.scheduledArrival ?? Date.distantFuture
         let now = Date()
         return now >= departure && now <= arrival
     }
@@ -583,7 +674,7 @@ struct LiveProgressBar: View {
             return "Not departed"
         }
         if p >= 1 { return "Arrived" }
-        if let arrival = flight.runwayArrival ?? flight.actualArrival ?? flight.estimatedArrival ?? flight.scheduledArrival {
+        if let arrival = flight.predictedArrival ?? flight.runwayArrival ?? flight.actualArrival ?? flight.estimatedArrival ?? flight.scheduledArrival {
             let minsLeft = Int(arrival.timeIntervalSinceNow / 60)
             if minsLeft > 0 { return "Arrives in \(minsLeft)m" }
         }
@@ -628,9 +719,12 @@ struct LiveProgressBar: View {
                     Text(flight.origin.iataCode)
                         .font(.caption2)
                         .fontWeight(.bold)
-                    Text(localTime(date: flight.scheduledDeparture, timezone: flight.origin.timezone))
+                    let depTime = (flight.runwayDeparture ?? flight.actualDeparture) ?? flight.scheduledDeparture
+                    let isDeparted = flight.runwayDeparture != nil || flight.actualDeparture != nil
+                    Text(localTime(date: depTime, timezone: flight.origin.timezone))
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isDeparted ? .blue : .secondary)
+                        .fontWeight(isDeparted ? .semibold : .regular)
                 }
 
                 Spacer()
@@ -647,9 +741,12 @@ struct LiveProgressBar: View {
                         Text(flight.destination.iataCode)
                             .font(.caption2)
                             .fontWeight(.bold)
-                        Text(localTime(date: arrival, timezone: flight.destination.timezone))
+                        let arrTime = (flight.runwayArrival ?? flight.actualArrival) ?? flight.scheduledArrival ?? arrival
+                        let hasArrived = flight.runwayArrival != nil || flight.actualArrival != nil
+                        Text(localTime(date: arrTime, timezone: flight.destination.timezone))
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(hasArrived ? .green : .secondary)
+                            .fontWeight(hasArrived ? .semibold : .regular)
                     }
                 }
             }

@@ -182,16 +182,20 @@ struct FlightListItemView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Top row: Airline, flight number, and date
+            // Top row: Airline logo, flight number, and date
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(flight.airline)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.primary)
+                HStack(spacing: 8) {
+                    AirlineLogoView(airlineIATA: flight.airlineIATA, airlineName: flight.airline, size: 28)
 
-                    Text(flight.flightNumber)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(flight.airline)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.primary)
+
+                        Text(flight.flightNumber)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Spacer()
@@ -466,6 +470,24 @@ struct StatusBadge: View {
         case .cancelled:
             return LinearGradient(
                 colors: [Color.red, Color.red.opacity(0.7)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .enRoute:
+            return LinearGradient(
+                colors: [Color.blue, Color.cyan],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .departed:
+            return LinearGradient(
+                colors: [Color.blue, Color.blue.opacity(0.8)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .expected:
+            return LinearGradient(
+                colors: [Color.gray, Color.gray.opacity(0.7)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )

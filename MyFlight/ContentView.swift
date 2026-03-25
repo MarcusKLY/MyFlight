@@ -221,6 +221,7 @@ struct LiveMapTab: View {
                     let flight = Flight(
                         flightNumber: draft.flightNumber,
                         airline: draft.airline,
+                        airlineIATA: draft.airlineIATA,
                         origin: origin,
                         destination: destination,
                         scheduledDeparture: draft.scheduledDeparture,
@@ -229,15 +230,23 @@ struct LiveMapTab: View {
                         runwayDeparture: draft.runwayDeparture,
                         runwayArrival: draft.runwayArrival,
                         estimatedArrival: draft.estimatedArrival,
+                        predictedArrival: draft.predictedArrival,
                         scheduledArrival: draft.scheduledArrival,
                         actualArrival: draft.actualArrival,
                         departureGate: draft.departureGate,
                         departureTerminal: draft.departureTerminal,
+                        departureRunway: draft.departureRunway,
+                        departureCheckInDesk: draft.departureCheckInDesk,
                         arrivalGate: draft.arrivalGate,
                         arrivalTerminal: draft.arrivalTerminal,
+                        arrivalRunway: draft.arrivalRunway,
                         baggageClaim: draft.baggageClaim,
                         aircraftModel: draft.aircraftModel,
                         tailNumber: draft.tailNumber,
+                        distanceKm: draft.distanceKm,
+                        distanceNm: draft.distanceNm,
+                        distanceMiles: draft.distanceMiles,
+                        callSign: draft.callSign,
                         flightStatus: draft.flightStatus
                     )
                     modelContext.insert(flight)
@@ -779,6 +788,7 @@ private struct AddFlightSheet: View {
         onSave(FlightDraft(
             flightNumber: result.flightNumber,
             airline: result.airline,
+            airlineIATA: result.airlineIATA,
             originCode: result.originIATACode,
             destinationCode: result.destinationIATACode,
             originName: result.originName,
@@ -795,15 +805,23 @@ private struct AddFlightSheet: View {
             runwayDeparture: result.runwayDeparture,
             runwayArrival: result.runwayArrival,
             estimatedArrival: result.estimatedArrival,
+            predictedArrival: result.predictedArrival,
             scheduledArrival: result.scheduledArrival,
             actualArrival: result.actualArrival,
             departureGate: result.departureGate,
             departureTerminal: result.departureTerminal,
+            departureRunway: result.departureRunway,
+            departureCheckInDesk: result.departureCheckInDesk,
             arrivalGate: result.arrivalGate,
             arrivalTerminal: result.arrivalTerminal,
+            arrivalRunway: result.arrivalRunway,
             baggageClaim: result.baggageClaim,
             aircraftModel: result.aircraftModel,
             tailNumber: result.tailNumber,
+            distanceKm: result.distanceKm,
+            distanceNm: result.distanceNm,
+            distanceMiles: result.distanceMiles,
+            callSign: result.callSign,
             flightStatus: result.status
         ))
         dismiss()
@@ -829,6 +847,7 @@ private struct AddFlightSheet: View {
         return Flight(
             flightNumber: result.flightNumber,
             airline: result.airline,
+            airlineIATA: result.airlineIATA,
             origin: origin,
             destination: destination,
             scheduledDeparture: result.scheduledDeparture,
@@ -837,15 +856,23 @@ private struct AddFlightSheet: View {
             runwayDeparture: result.runwayDeparture,
             runwayArrival: result.runwayArrival,
             estimatedArrival: result.estimatedArrival,
+            predictedArrival: result.predictedArrival,
             scheduledArrival: result.scheduledArrival,
             actualArrival: result.actualArrival,
             departureGate: result.departureGate,
             departureTerminal: result.departureTerminal,
+            departureRunway: result.departureRunway,
+            departureCheckInDesk: result.departureCheckInDesk,
             arrivalGate: result.arrivalGate,
             arrivalTerminal: result.arrivalTerminal,
+            arrivalRunway: result.arrivalRunway,
             baggageClaim: result.baggageClaim,
             aircraftModel: result.aircraftModel,
             tailNumber: result.tailNumber,
+            distanceKm: result.distanceKm,
+            distanceNm: result.distanceNm,
+            distanceMiles: result.distanceMiles,
+            callSign: result.callSign,
             flightStatus: result.status
         )
     }
@@ -1071,6 +1098,7 @@ private struct ManualFlightEntrySheet: View {
         onSave(FlightDraft(
             flightNumber: flightNumber.trimmingCharacters(in: .whitespacesAndNewlines),
             airline: airline.trimmingCharacters(in: .whitespacesAndNewlines),
+            airlineIATA: nil,
             originCode: normalizedOrigin,
             destinationCode: normalizedDest,
             originName: nil,
@@ -1087,15 +1115,23 @@ private struct ManualFlightEntrySheet: View {
             runwayDeparture: nil,
             runwayArrival: nil,
             estimatedArrival: nil,
+            predictedArrival: nil,
             scheduledArrival: scheduledArrival,
             actualArrival: nil,
             departureGate: nil,
             departureTerminal: nil,
+            departureRunway: nil,
+            departureCheckInDesk: nil,
             arrivalGate: nil,
             arrivalTerminal: nil,
+            arrivalRunway: nil,
             baggageClaim: nil,
             aircraftModel: nil,
             tailNumber: nil,
+            distanceKm: nil,
+            distanceNm: nil,
+            distanceMiles: nil,
+            callSign: nil,
             flightStatus: .onTime
         ))
         dismiss()
@@ -1107,6 +1143,7 @@ private struct ManualFlightEntrySheet: View {
 private struct FlightDraft {
     let flightNumber: String
     let airline: String
+    let airlineIATA: String?
     let originCode: String
     let destinationCode: String
     let originName: String?
@@ -1123,15 +1160,23 @@ private struct FlightDraft {
     let runwayDeparture: Date?
     let runwayArrival: Date?
     let estimatedArrival: Date?
+    let predictedArrival: Date?
     let scheduledArrival: Date?
     let actualArrival: Date?
     let departureGate: String?
     let departureTerminal: String?
+    let departureRunway: String?
+    let departureCheckInDesk: String?
     let arrivalGate: String?
     let arrivalTerminal: String?
+    let arrivalRunway: String?
     let baggageClaim: String?
     let aircraftModel: String?
     let tailNumber: String?
+    let distanceKm: Double?
+    let distanceNm: Double?
+    let distanceMiles: Double?
+    let callSign: String?
     let flightStatus: FlightStatus
 }
 

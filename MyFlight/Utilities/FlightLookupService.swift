@@ -10,6 +10,7 @@ import Foundation
 struct FlightLookupResult {
     let flightNumber: String
     let airline: String
+    let airlineIATA: String?
     let originIATACode: String
     let destinationIATACode: String
     let originName: String?
@@ -26,15 +27,23 @@ struct FlightLookupResult {
     let runwayDeparture: Date?
     let runwayArrival: Date?
     let estimatedArrival: Date?
+    let predictedArrival: Date?
     let scheduledArrival: Date?
     let actualArrival: Date?
     let departureGate: String?
     let departureTerminal: String?
+    let departureRunway: String?
+    let departureCheckInDesk: String?
     let arrivalGate: String?
     let arrivalTerminal: String?
+    let arrivalRunway: String?
     let baggageClaim: String?
     let aircraftModel: String?
     let tailNumber: String?
+    let distanceKm: Double?
+    let distanceNm: Double?
+    let distanceMiles: Double?
+    let callSign: String?
     let status: FlightStatus
 }
 
@@ -98,6 +107,7 @@ enum FlightLookupService {
         let scheduledArr = parseAeroDate(first.arrival?.scheduledTime?.utc)
         let revisedArr = parseAeroDate(first.arrival?.revisedTime?.utc)
         let estimatedArr = parseAeroDate(first.arrival?.estimatedTime?.utc)
+        let predictedArr = parseAeroDate(first.arrival?.predictedTime?.utc)
         let runwayArr = parseAeroDate(first.arrival?.runwayTime?.utc)
         let actualArr = parseAeroDate(first.arrival?.actualTime?.utc) ?? runwayArr
 
@@ -119,6 +129,12 @@ enum FlightLookupService {
             status = .cancelled
         } else if statusString.contains("arriv") || statusString.contains("land") {
             status = .arrived
+        } else if statusString.contains("enroute") || statusString.contains("en route") {
+            status = .enRoute
+        } else if statusString.contains("depart") {
+            status = .departed
+        } else if statusString.contains("expect") {
+            status = .expected
         } else if statusString.contains("delay") {
             status = .delayed
         } else if let arrival = actualArr ?? runwayArr, arrival < Date() {
@@ -131,12 +147,13 @@ enum FlightLookupService {
         }
 
         #if DEBUG
-        print("FlightLookupService: statusString=\(statusString), scheduled=\(scheduledDep), estimated=\(String(describing: estimatedDep)), actual=\(String(describing: actualDep)), runway=\(String(describing: first.departure?.runwayTime?.utc)), arrivalScheduled=\(String(describing: first.arrival?.scheduledTime?.utc)), arrivalEstimated=\(String(describing: first.arrival?.estimatedTime?.utc)), arrivalActual=\(String(describing: first.arrival?.actualTime?.utc)), computedDelay=\(String(describing: computedDelayMinutes)), resolvedStatus=\(status)")
+        print("FlightLookupService: statusString=\(statusString), scheduled=\(scheduledDep), estimated=\(String(describing: estimatedDep)), actual=\(String(describing: actualDep)), runway=\(String(describing: first.departure?.runwayTime?.utc)), arrivalScheduled=\(String(describing: first.arrival?.scheduledTime?.utc)), arrivalEstimated=\(String(describing: first.arrival?.estimatedTime?.utc)), arrivalPredicted=\(String(describing: first.arrival?.predictedTime?.utc)), arrivalActual=\(String(describing: first.arrival?.actualTime?.utc)), computedDelay=\(String(describing: computedDelayMinutes)), resolvedStatus=\(status)")
         #endif
 
         return FlightLookupResult(
             flightNumber: first.number ?? flightNumber,
             airline: first.airline?.name ?? "Unknown Airline",
+            airlineIATA: first.airline?.iata,
             originIATACode: first.departure?.airport?.iata ?? "",
             destinationIATACode: first.arrival?.airport?.iata ?? "",
             originName: first.departure?.airport?.name,
@@ -153,15 +170,23 @@ enum FlightLookupService {
             runwayDeparture: runwayDep,
             runwayArrival: runwayArr,
             estimatedArrival: revisedArr ?? estimatedArr,
+            predictedArrival: predictedArr,
             scheduledArrival: scheduledArr,
             actualArrival: actualArr,
             departureGate: first.departure?.gate,
             departureTerminal: first.departure?.terminal,
+            departureRunway: first.departure?.runway,
+            departureCheckInDesk: first.departure?.checkInDesk,
             arrivalGate: first.arrival?.gate,
             arrivalTerminal: first.arrival?.terminal,
+            arrivalRunway: first.arrival?.runway,
             baggageClaim: first.arrival?.baggageBelt,
             aircraftModel: first.aircraft?.model,
             tailNumber: first.aircraft?.reg,
+            distanceKm: first.greatCircleDistance?.km,
+            distanceNm: first.greatCircleDistance?.nm,
+            distanceMiles: first.greatCircleDistance?.mile,
+            callSign: first.callSign,
             status: status
         )
     }
@@ -178,19 +203,32 @@ enum FlightLookupService {
 private struct AeroFlightItem: Codable {
     let number: String?
     let status: String?
+    let callSign: String?
     let airline: AeroAirline?
     let aircraft: AeroAircraft?
     let departure: AeroEndpoint?
     let arrival: AeroEndpoint?
+    let greatCircleDistance: AeroDistance?
 }
 
 private struct AeroAirline: Codable {
     let name: String?
+    let iata: String?
+    let icao: String?
 }
 
 private struct AeroAircraft: Codable {
     let reg: String?
     let model: String?
+    let modeS: String?
+}
+
+private struct AeroDistance: Codable {
+    let km: Double?
+    let mile: Double?
+    let nm: Double?
+    let meter: Double?
+    let feet: Double?
 }
 
 private struct AeroEndpoint: Codable {
@@ -198,15 +236,18 @@ private struct AeroEndpoint: Codable {
     let scheduledTime: AeroTime?
     let revisedTime: AeroTime?
     let estimatedTime: AeroTime?
+    let predictedTime: AeroTime?
     let actualTime: AeroTime?
     let runwayTime: AeroTime?
     let terminal: String?
     let gate: String?
+    let runway: String?
+    let checkInDesk: String?
     let baggageBelt: String?
 
     enum CodingKeys: String, CodingKey {
-        case airport, terminal, gate, baggageBelt
-        case scheduledTime, revisedTime, estimatedTime, actualTime, runwayTime
+        case airport, terminal, gate, runway, checkInDesk, baggageBelt
+        case scheduledTime, revisedTime, estimatedTime, predictedTime, actualTime, runwayTime
     }
 }
 

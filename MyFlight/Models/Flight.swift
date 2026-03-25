@@ -13,6 +13,9 @@ enum FlightStatus: String, CaseIterable, Codable, Identifiable {
     case delayed = "Delayed"
     case arrived = "Arrived"
     case cancelled = "Cancelled"
+    case enRoute = "En Route"
+    case departed = "Departed"
+    case expected = "Expected"
 
     var id: String { rawValue }
 }
@@ -22,6 +25,7 @@ final class Flight {
     @Attribute(.unique) var id: UUID
     var flightNumber: String
     var airline: String
+    var airlineIATA: String?
     var origin: Airport
     var destination: Airport
     var scheduledDeparture: Date
@@ -30,20 +34,29 @@ final class Flight {
     var runwayDeparture: Date?        // Wheels-off / takeoff time
     var runwayArrival: Date?          // Wheels-on / landing time
     var estimatedArrival: Date?       // Estimated gate-in time
+    var predictedArrival: Date?       // Predicted arrival (more accurate for in-flight)
     var scheduledArrival: Date?
     var actualArrival: Date?          // Actual gate-in time
     var departureGate: String?
     var departureTerminal: String?
+    var departureRunway: String?
+    var departureCheckInDesk: String?
     var arrivalGate: String?
     var arrivalTerminal: String?
+    var arrivalRunway: String?
     var baggageClaim: String?
     var aircraftModel: String?
     var tailNumber: String?
+    var distanceKm: Double?
+    var distanceNm: Double?
+    var distanceMiles: Double?
+    var callSign: String?
     private var statusRawValue: String
 
     init(
         flightNumber: String,
         airline: String,
+        airlineIATA: String? = nil,
         origin: Airport,
         destination: Airport,
         scheduledDeparture: Date,
@@ -52,20 +65,29 @@ final class Flight {
         runwayDeparture: Date? = nil,
         runwayArrival: Date? = nil,
         estimatedArrival: Date? = nil,
+        predictedArrival: Date? = nil,
         scheduledArrival: Date? = nil,
         actualArrival: Date? = nil,
         departureGate: String? = nil,
         departureTerminal: String? = nil,
+        departureRunway: String? = nil,
+        departureCheckInDesk: String? = nil,
         arrivalGate: String? = nil,
         arrivalTerminal: String? = nil,
+        arrivalRunway: String? = nil,
         baggageClaim: String? = nil,
         aircraftModel: String? = nil,
         tailNumber: String? = nil,
+        distanceKm: Double? = nil,
+        distanceNm: Double? = nil,
+        distanceMiles: Double? = nil,
+        callSign: String? = nil,
         flightStatus: FlightStatus = .onTime
     ) {
         self.id = UUID()
         self.flightNumber = flightNumber
         self.airline = airline
+        self.airlineIATA = airlineIATA
         self.origin = origin
         self.destination = destination
         self.scheduledDeparture = scheduledDeparture
@@ -74,15 +96,23 @@ final class Flight {
         self.runwayDeparture = runwayDeparture
         self.runwayArrival = runwayArrival
         self.estimatedArrival = estimatedArrival
+        self.predictedArrival = predictedArrival
         self.scheduledArrival = scheduledArrival
         self.actualArrival = actualArrival
         self.departureGate = departureGate
         self.departureTerminal = departureTerminal
+        self.departureRunway = departureRunway
+        self.departureCheckInDesk = departureCheckInDesk
         self.arrivalGate = arrivalGate
         self.arrivalTerminal = arrivalTerminal
+        self.arrivalRunway = arrivalRunway
         self.baggageClaim = baggageClaim
         self.aircraftModel = aircraftModel
         self.tailNumber = tailNumber
+        self.distanceKm = distanceKm
+        self.distanceNm = distanceNm
+        self.distanceMiles = distanceMiles
+        self.callSign = callSign
         self.statusRawValue = flightStatus.rawValue
     }
 
@@ -111,15 +141,26 @@ final class Flight {
     /// Returns nil when the flight is not yet trackable (no arrival time known).
     var flightProgress: Double? {
         let departure = runwayDeparture ?? actualDeparture ?? scheduledDeparture
-        guard let arrival = runwayArrival ?? actualArrival ?? estimatedArrival ?? scheduledArrival else {
+        guard let arrival = runwayArrival ?? actualArrival ?? predictedArrival ?? estimatedArrival ?? scheduledArrival else {
             return nil
         }
         let total = arrival.timeIntervalSince(departure)
         guard total > 0 else { return nil }
+
+        // If flight has landed or arrived, show 100%
+        if runwayArrival != nil || actualArrival != nil {
+            return 1.0
+        }
+
         let now = Date()
         guard now >= departure else { return 0 }
         guard now <= arrival else { return 1 }
         return now.timeIntervalSince(departure) / total
+    }
+
+    /// Best predicted arrival time: prioritizes predictedArrival over estimatedArrival.
+    var bestPredictedArrival: Date? {
+        predictedArrival ?? estimatedArrival ?? scheduledArrival
     }
 
     /// Departure delay in minutes compared to scheduled time.
