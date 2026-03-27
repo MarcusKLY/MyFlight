@@ -1,67 +1,75 @@
 # MyFlight
 
-MyFlight is an iOS flight-tracking app built with SwiftUI and SwiftData. It lets you search flights by number and date, save them locally, and inspect rich operational details such as route, timeline events, delay deltas, map route visualization, gates/terminals, and aircraft information.
+MyFlight is an iOS flight-tracking app built with SwiftUI, SwiftData, and MapKit. You can search flights by number and date, save them locally, follow them on a live map, and inspect rich operational details including timeline events, route progress, gate data, and aircraft metadata.
 
-## Architecture Overview
+## Highlights
 
-### UI Layer (SwiftUI)
-- Main entry: `MyFlightApp` and `ContentView`
-- Flight list/map interactions: list + map container with selection-driven detail sheets
-- Flight detail: `FlightDetailView`
-  - route + progress + timeline + gate/terminal + aircraft sections
-  - dual-time display (airport local + optional device-local fallback)
-  - event-based timeline rendering with deduplication and precedence
+- Tab-based app flow with `Live Map` and `Logbook`.
+- Full-screen map experience with floating controls and flight tracking.
+- Sheet-driven UX for:
+  - flight list
+  - add flight
+  - flight detail
+- Flight search with API-backed lookup and manual-entry fallback.
+- SwiftData persistence for `Flight` and `Airport` models.
+- Event timeline with scheduled, estimated, revised, actual, and runway timestamps.
+- Aircraft enrichment (image + age metadata when available).
+- Live Activity widget target included (`MyFlightLiveActivity`).
 
-### Persistence Layer (SwiftData)
-- Domain model: `Flight` (`@Model`) and `Airport`
-- Stores both schedule and operational timestamps:
-  - departure: scheduled/revised/estimated/actual/runway
-  - arrival: scheduled/revised/estimated/predicted/actual/runway
-- Stores aircraft metadata:
-  - model, tail number, image URL, aircraft age, call sign
+## Tech Stack
 
-### Mapping Layer (MapKit)
-- `MapViewContainer` renders airport markers and route paths
-- Geodesic path utilities provide realistic long-haul arc rendering
+- SwiftUI
+- SwiftData
+- MapKit
+- WidgetKit / ActivityKit (Live Activity target)
+- Xcode project with `.xcconfig`-based secrets
 
-## API Architecture
+## Project Structure
 
-MyFlight combines two APIs:
+- `MyFlight/`
+  - `ContentView.swift`: main tab architecture and sheet orchestration
+  - `Views/`: list/detail/map/logbook UI
+  - `Utilities/FlightLookupService.swift`: API integration and response normalization
+  - `Models/`: domain models (`Flight`, `Airport`, etc.)
+  - `LiveActivities/`: in-app activity integration
+- `MyFlightLiveActivity/`: Live Activity widget extension target
+- `Config/`
+  - `Debug.xcconfig`
+  - `Release.xcconfig`
+  - `Secrets.xcconfig.sample`
 
-1. AeroDataBox (RapidAPI)
-- Flight operations, airport metadata, and base aircraft info
-- Endpoint used for lookup:
-  - `/flights/number/{flightNumber}/{yyyy-MM-dd}`
-- Aircraft image fetch:
-  - `/aircrafts/reg/{reg}/image/image`
+## API Integration
+
+MyFlight combines two providers:
+
+1. AeroDataBox (via RapidAPI)
+- Flight lookup by number/date
+- Airport and operational time fields
+- Aircraft image endpoint
 
 2. AirLabs
-- Deep aircraft metadata enrichment
-- Endpoint used:
-  - `/api/v9/fleets?reg={tail_number}`
-- Used to derive `aircraftAge` from age/built fields when available
+- Optional aircraft enrichment from tail number
+- Used to derive aircraft age/build metadata when available
 
-### RapidAPI Key Rotation (429 Fallback)
-`FlightLookupService` supports a key pool and rotates automatically when a request returns `429 Too Many Requests`.
+### Key Rotation for RapidAPI (429 Handling)
+
+`FlightLookupService` supports rotating keys when a request hits `429 Too Many Requests`.
 
 Resolution order:
-1. `FLIGHT_API_KEYS` (comma-separated list)
-2. Fallback to `FLIGHT_API_KEY` (single key)
+1. `FLIGHT_API_KEYS` (comma-separated key pool)
+2. `FLIGHT_API_KEY` (single fallback key)
 
 Behavior:
-- On `429`, retry with the next key
-- If all keys are rate-limited, return a user-facing rate-limit error
-- Non-429 HTTP failures return invalid-response errors
+- Retry with next key on `429`
+- Return a rate-limit error after all keys are exhausted
+- Return invalid-response errors for non-429 HTTP failures
 
-## Configuration
+## Setup
 
-### 1. Add your secrets file
-Copy:
-- `Config/Secrets.xcconfig.sample` -> `Config/Secrets.xcconfig`
+1. Create a local secrets file:
+- Copy `Config/Secrets.xcconfig.sample` to `Config/Secrets.xcconfig`
 
-`Secrets.xcconfig` is git-ignored and should remain local/private.
-
-### 2. Set API keys in `Config/Secrets.xcconfig`
+2. Add API keys in `Config/Secrets.xcconfig`:
 
 ```xcconfig
 FLIGHT_API_KEY = your_primary_rapidapi_key_here
@@ -69,61 +77,23 @@ FLIGHT_API_KEYS = key_one,key_two,key_three
 AIRLABS_API_KEY = your_airlabs_api_key_here
 ```
 
-Notes:
-- `FLIGHT_API_KEYS` is preferred for production usage.
-- `FLIGHT_API_KEY` is still supported as fallback.
-- If `AIRLABS_API_KEY` is empty, aircraft age enrichment is skipped gracefully.
+3. Open `MyFlight.xcodeproj` in Xcode and run the `MyFlight` scheme.
 
-### 3. Build settings wiring
-The project already wires these through:
-- `Config/Debug.xcconfig`
-- `Config/Release.xcconfig`
-- `MyFlight-Info.plist` keys:
-  - `FLIGHT_API_KEY`
-  - `FLIGHT_API_KEYS`
-  - `AIRLABS_API_KEY`
+Notes:
+- `Secrets.xcconfig` should stay local and private.
+- `FLIGHT_API_KEYS` is recommended for better resilience against rate limits.
+- If `AIRLABS_API_KEY` is missing, flight lookup still works and enrichment is skipped.
 
 ## Data Flow
 
-1. User searches by flight number + date.
-2. `FlightLookupService.lookup(...)` fetches AeroDataBox flight candidates.
-3. Service filters candidates by selected departure date.
-4. Service enriches aircraft fields:
-- image URL from AeroDataBox aircraft image endpoint
-- age metadata from AirLabs fleets endpoint
-5. Result maps into `FlightDraft` then persisted as `Flight`.
-6. UI reads from SwiftData and renders list, map, and detail timeline.
+1. User enters flight number + date.
+2. `FlightLookupService.lookup(...)` fetches flight candidates.
+3. Candidates are filtered and ranked for best match.
+4. Optional enrichment fetches aircraft image/age metadata.
+5. Result is mapped to `FlightDraft` and persisted as `Flight`.
+6. Views render from SwiftData into map/list/detail/logbook surfaces.
 
-## Extending the Codebase
-
-### Add new provider data
-- Start in `FlightLookupService`.
-- Keep provider-specific DTOs private to the service file.
-- Map into `FlightLookupResult` only after normalization.
-- Add optional fields to `Flight` model and thread through `FlightDraft`.
-
-### Timeline logic changes
-- Centralize event generation in `FlightDetailView`:
-  - departure/arrival event arrays
-  - deduplication precedence
-  - view-only formatting in helper methods
-- Preserve baseline semantics:
-  - scheduled event anchored at top
-  - suppress expected rows when confirmed events exist
-
-### UI additions
-- Place new detail blocks as separate computed views in `FlightDetailView`.
-- Keep icons/labels in `infoRow(...)` for visual consistency.
-- Prefer optional-safe rendering (empty/missing API fields should not break layout).
-
-## Maintenance Checklist
-
-- Validate keys are set in local `Secrets.xcconfig`.
-- Test with at least one flight that returns:
-  - revised times without actuals
-  - multi-candidate same-day results
-  - missing aircraft image
-- Run simulator build:
+## Build (CLI)
 
 ```bash
 xcodebuild -scheme MyFlight -configuration Debug -sdk iphonesimulator -destination 'name=iPhone 17 Pro'
@@ -131,11 +101,22 @@ xcodebuild -scheme MyFlight -configuration Debug -sdk iphonesimulator -destinati
 
 ## Troubleshooting
 
-- "Flight API key missing"
+- `Flight API key missing`
   - Ensure `FLIGHT_API_KEYS` or `FLIGHT_API_KEY` is configured.
-- Frequent rate limits
+- Frequent 429 responses
   - Add multiple keys to `FLIGHT_API_KEYS`.
-- No aircraft age shown
-  - Confirm `AIRLABS_API_KEY` is valid and the tail number exists in AirLabs fleets data.
-- No aircraft photo shown
-  - Some tail numbers do not have image assets; UI falls back to placeholder automatically.
+- Missing aircraft age
+  - Verify `AIRLABS_API_KEY` and tail-number availability.
+- Missing aircraft image
+  - Not all registrations have photo assets; placeholder rendering is expected.
+
+## Development Notes
+
+- Keep provider DTO parsing private to `FlightLookupService`.
+- Normalize into app-facing models before UI consumption.
+- Prefer optional-safe rendering for all provider data fields.
+- When adding flight fields, thread changes through:
+  - lookup result
+  - draft model
+  - persisted `Flight`
+  - detail/list views
