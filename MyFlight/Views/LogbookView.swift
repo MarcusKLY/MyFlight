@@ -55,8 +55,11 @@ struct LogbookView: View {
         let flightMiles = flights.reduce(0) { total, flight in
             total + calculateDistanceMiles(from: flight.origin, to: flight.destination)
         }
-        let transitMiles = transitSegments.reduce(0) { total, transit in
-            total + Int(transit.distanceMiles ?? 0)
+        let transitMiles = transitSegments.reduce(into: 0) { total, transit in
+            let originLoc = CLLocation(latitude: transit.originLatitude, longitude: transit.originLongitude)
+            let destLoc = CLLocation(latitude: transit.destinationLatitude, longitude: transit.destinationLongitude)
+            let meters = originLoc.distance(from: destLoc)
+            total += Int(meters / 1609.34) // Convert to miles
         }
         return flightMiles + transitMiles
     }
@@ -337,8 +340,8 @@ struct LogbookView: View {
                     
                     let transit = TransitSegment(
                         transitType: transitType,
-                        operatorName: transitBackup.operatorName,
                         routeNumber: transitBackup.routeNumber,
+                        operatorName: transitBackup.operatorName,
                         originName: transitBackup.originName,
                         originLatitude: transitBackup.originLatitude,
                         originLongitude: transitBackup.originLongitude,
