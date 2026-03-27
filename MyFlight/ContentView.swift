@@ -97,6 +97,19 @@ struct LiveMapTab: View {
             .first
     }
 
+    private var topOverlayFlight: Flight? {
+        selectedFlight
+    }
+
+    private var isTrackingFlight: Bool {
+        selectedFlight != nil
+    }
+
+    private var isTrackedFlightAlsoNext: Bool {
+        guard let tracked = selectedFlight, let next = nextUpcomingFlight else { return false }
+        return tracked.id == next.id
+    }
+
     var body: some View {
         ZStack {
             // Full-screen map
@@ -111,12 +124,17 @@ struct LiveMapTab: View {
             // Minimal floating controls overlay
             VStack {
                 // Top bar - only show when sheet is collapsed or dismissed
-                HStack {
+                HStack(alignment: .top) {
                     // T-Minus Countdown Widget (only visible when sheet is small)
-                    if let nextFlight = nextUpcomingFlight, sheetDetent == .fraction(0.12) {
-                        TMinusCountdownView(flight: nextFlight)
+                    if let overlayFlight = topOverlayFlight, sheetDetent == .fraction(0.12) {
+                        TMinusCountdownView(
+                            flight: overlayFlight,
+                            isTracking: isTrackingFlight,
+                            showNextBadge: isTrackedFlightAlsoNext,
+                            onCloseTracking: isTrackingFlight ? { selectedFlight = nil } : nil
+                        )
                             .onTapGesture {
-                                selectFlightWithAnimation(nextFlight)
+                                activeSheet = .flightDetail(overlayFlight)
                             }
                             .transition(.scale.combined(with: .opacity))
                     }
@@ -144,41 +162,10 @@ struct LiveMapTab: View {
                             sheetDetent = .fraction(0.33)
                         }
                     }
-
-                    // Clear selected (stop tracking) button
-                    if selectedFlight != nil {
-                        Button {
-                            selectedFlight = nil
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 16, weight: .bold))
-                                .frame(width: 32, height: 32)
-                                .background(.ultraThinMaterial, in: Circle())
-                                .foregroundColor(.red)
-                                .shadow(color: .black.opacity(0.15), radius: 1.5, y: 1)
-                        }
-                        .buttonStyle(.borderless)
-                    }
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
                 .animation(.easeInOut(duration: 0.22), value: activeSheet)
-
-                // Selected flight action bar (only visible when sheet is small)
-                if selectedFlight != nil, sheetDetent == .fraction(0.12) {
-                    HStack {
-                        Spacer()
-                        ActionChip(title: "Details", icon: "info.circle") {
-                            // switch to flight detail sheet (single sheet model)
-                            if let selectedFlight {
-                                activeSheet = .flightDetail(selectedFlight)
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 4)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
 
                 Spacer()
             }
@@ -456,32 +443,63 @@ struct LiveMapTab: View {
 
 struct TMinusCountdownView: View {
     let flight: Flight
+    let isTracking: Bool
+    let showNextBadge: Bool
+    let onCloseTracking: (() -> Void)?
     @State private var timeRemaining: TimeInterval = 0
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: "airplane.departure")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(statusGradient)
+                .padding(.top, 2)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("NEXT FLIGHT")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(isTracking ? "TRACKING" : "NEXT FLIGHT")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.secondary)
+
+                    if showNextBadge {
+                        Text("NEXT")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.12), in: Capsule())
+                    }
+                }
 
                 Text(countdownString)
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .font(.system(size: 17, weight: .bold, design: .monospaced))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .foregroundStyle(statusGradient)
-            }
 
-            Text(flight.flightNumber)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.secondary)
+                Text("\(flight.flightNumber)  \(flight.origin.iataCode) -> \(flight.destination.iataCode)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let onCloseTracking {
+                Button(action: onCloseTracking) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop tracking")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .frame(minWidth: 220, alignment: .leading)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
         .onReceive(timer) { _ in
@@ -1035,7 +1053,7 @@ private struct SearchResultCard: View {
             }
 
             // Route
-            HStack(spacing: 0) {
+            HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.originIATACode)
                         .font(.system(size: 24, weight: .bold))
@@ -1044,17 +1062,15 @@ private struct SearchResultCard: View {
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .truncationMode(.tail)
                     }
                 }
-                .frame(width: 80, alignment: .leading)
-
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: "airplane")
                     .font(.system(size: 16))
                     .foregroundColor(.blue)
-
-                Spacer()
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(result.destinationIATACode)
@@ -1064,9 +1080,11 @@ private struct SearchResultCard: View {
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .truncationMode(.tail)
                     }
                 }
-                .frame(width: 80, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
 
             // Times

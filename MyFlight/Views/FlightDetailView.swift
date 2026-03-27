@@ -16,6 +16,10 @@ struct FlightDetailView: View {
     @State private var isRefreshing = false
     @State private var isFlipped = false
 
+    // Keep both card faces the same size to prevent layout jumps when flipping.
+    private let aircraftHeroHeight: CGFloat = 190
+    private let sideViewVerticalPadding: CGFloat = 20
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -842,12 +846,13 @@ struct FlightDetailView: View {
         return ZStack {
             // Back face: Silhouette (white PNG on card background)
             if isFlipped {
-                VStack {
+                ZStack {
+                    Color.white
                     safeAircraftSilhouette(silhouetteName)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                        .padding(.vertical, sideViewVerticalPadding)
+                        .padding(.horizontal, 8)
                 }
-                .frame(maxWidth: .infinity, maxHeight: 190)
-                .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
             }
 
             // Front face: Remote photo or fallback silhouette
@@ -857,45 +862,49 @@ struct FlightDetailView: View {
                         switch phase {
                         case .empty:
                             // Loading state: show silhouette
-                            VStack {
+                            ZStack {
+                                Color.white
                                 safeAircraftSilhouette(silhouetteName)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                                    .padding(.vertical, sideViewVerticalPadding)
+                                    .padding(.horizontal, 8)
                             }
-                            .frame(maxWidth: .infinity, maxHeight: 190)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
                         case .success(let image):
                             // Success: show remote photo
                             image
                                 .resizable()
                                 .scaledToFill()
-                                .frame(maxWidth: .infinity, maxHeight: 190)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .clipped()
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
                         case .failure:
                             // Failed to load: show silhouette fallback
-                            VStack {
+                            ZStack {
+                                Color.white
                                 safeAircraftSilhouette(silhouetteName)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                                    .padding(.vertical, sideViewVerticalPadding)
+                                    .padding(.horizontal, 8)
                             }
-                            .frame(maxWidth: .infinity, maxHeight: 190)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
                         @unknown default:
                             aircraftImagePlaceholder
-                                .frame(maxWidth: .infinity, maxHeight: 190)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
                 } else {
                     // No URL: show silhouette only
-                    VStack {
+                    ZStack {
+                        Color.white
                         safeAircraftSilhouette(silhouetteName)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                            .padding(.vertical, sideViewVerticalPadding)
+                            .padding(.horizontal, 8)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: 190)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: 190)
+        .frame(maxWidth: .infinity)
+        .frame(height: aircraftHeroHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
         .background(Color.black.opacity(0.04))
         .cornerRadius(14)
         .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)

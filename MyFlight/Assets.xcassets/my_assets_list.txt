@@ -1,0 +1,5 @@
+AccentColor.colorset
+AppIcon.appiconset
+Contents.json
+my_assets_list.txt
+MyFlight_App_Assets
