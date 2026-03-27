@@ -229,36 +229,36 @@ struct FlightDetailView: View {
     }
 
     private var flightStatusText: String {
-        if flight.flightStatus == .arrived {
+        if flight.computedFlightStatus == .arrived {
             if let delay = flight.arrivalDelayMinutes, delay > 0 {
                 return "Arrived Late"
             }
             return "Arrived"
         }
 
-        if flight.flightStatus == .enRoute {
+        if flight.computedFlightStatus == .enRoute {
             return "En Route"
         }
 
-        switch flight.flightStatus {
+        switch flight.computedFlightStatus {
         case .onTime: return "On Time"
         case .delayed: return "Delayed"
         case .cancelled: return "Cancelled"
         case .departed: return "Departed"
         case .expected: return "Expected"
-        default: return flight.flightStatus.rawValue
+        default: return flight.computedFlightStatus.rawValue
         }
     }
 
     private var statusColor: Color {
-        if flight.flightStatus == .arrived {
+        if flight.computedFlightStatus == .arrived {
             if let delay = flight.arrivalDelayMinutes, delay > 0 {
                 return Color.orange
             }
             return Color.green
         }
 
-        switch flight.flightStatus {
+        switch flight.computedFlightStatus {
         case .onTime: return Color.green
         case .delayed: return Color.orange
         case .cancelled: return Color.red
@@ -412,7 +412,7 @@ struct FlightDetailView: View {
         ]
 
         let confirmedGateOut = flight.actualDeparture ?? flight.revisedDeparture
-        let forceGateOutConfirmation = (flight.flightStatus == .enRoute || flight.flightStatus == .arrived) &&
+        let forceGateOutConfirmation = (flight.computedFlightStatus == .enRoute || flight.computedFlightStatus == .arrived) &&
             (confirmedGateOut.map { isSameMinute($0, flight.scheduledDeparture) } ?? false)
         let hasActualDepartureEvent = confirmedGateOut != nil || flight.runwayDeparture != nil
 
@@ -483,7 +483,7 @@ struct FlightDetailView: View {
             )
         }
 
-        let arrivedStatus = flight.flightStatus == .arrived
+        let arrivedStatus = flight.computedFlightStatus == .arrived
         let fallbackGateIn = arrivedStatus && flight.actualArrival == nil && flight.runwayArrival == nil ? flight.revisedArrival : nil
         let confirmedLanding = flight.runwayArrival
         let confirmedGateIn = flight.actualArrival ?? fallbackGateIn
@@ -870,7 +870,7 @@ struct FlightDetailView: View {
                                     .padding(.horizontal, 8)
                             }
                         case .success(let image):
-                            // Success: show remote photo
+                            // Success: show remote photo - crop to fill
                             image
                                 .resizable()
                                 .scaledToFill()

@@ -23,10 +23,19 @@ struct ContentView: View {
 
 struct MainTabView: View {
     @State private var selectedTab = 0
+    
+    // Preserve state across tab transitions
+    @State private var selectedFlight: Flight?
+    @State private var selectedTransit: TransitSegment?
+    @State private var sheetDetent: PresentationDetent = .fraction(0.12)
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            LiveMapTab()
+            LiveMapTab(
+                selectedFlight: $selectedFlight,
+                selectedTransit: $selectedTransit,
+                sheetDetent: $sheetDetent
+            )
                 .tabItem {
                     Label("Live Map", systemImage: "map.fill")
                 }
@@ -48,7 +57,9 @@ struct LiveMapTab: View {
     enum ActiveSheet: Identifiable, Equatable {
         case flightList
         case addFlight
+        case addTransit
         case flightDetail(Flight)
+        case transitDetail(TransitSegment)
 
         var id: String {
             switch self {
@@ -56,16 +67,22 @@ struct LiveMapTab: View {
                 return "flightList"
             case .addFlight:
                 return "addFlight"
+            case .addTransit:
+                return "addTransit"
             case .flightDetail(let flight):
                 return "flightDetail-\(flight.id.uuidString)"
+            case .transitDetail(let transit):
+                return "transitDetail-\(transit.id.uuidString)"
             }
         }
 
         static func == (lhs: ActiveSheet, rhs: ActiveSheet) -> Bool {
             switch (lhs, rhs) {
-            case (.flightList, .flightList), (.addFlight, .addFlight):
+            case (.flightList, .flightList), (.addFlight, .addFlight), (.addTransit, .addTransit):
                 return true
             case (.flightDetail(let a), .flightDetail(let b)):
+                return a.id == b.id
+            case (.transitDetail(let a), .transitDetail(let b)):
                 return a.id == b.id
             default:
                 return false
@@ -75,15 +92,18 @@ struct LiveMapTab: View {
 
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Flight.scheduledDeparture, order: .reverse) private var flights: [Flight]
+    @Query(sort: \TransitSegment.scheduledDeparture, order: .reverse) private var transitSegments: [TransitSegment]
     @Query(sort: \Airport.iataCode) private var airports: [Airport]
-    @State private var selectedFlight: Flight?
+    @Binding var selectedFlight: Flight?
+    @Binding var selectedTransit: TransitSegment?
+    @Binding var sheetDetent: PresentationDetent
     @State private var mapPosition: MapCameraPosition = .automatic
     @State private var activeSheet: ActiveSheet? = .flightList
-    @State private var sheetDetent: PresentationDetent = .fraction(0.12) // Start collapsed
     @State private var mapStyleMode: FlightMapStyleMode = .mutedStandard
     @State private var showClearDataAlert = false
     @State private var showClearSuccessAlert = false
     @State private var debugCopied = false
+    @State private var listFilter: ListFilter = .all
 
     // Haptic feedback generators
     private let selectionHaptic = UIImpactFeedbackGenerator(style: .medium)
@@ -115,9 +135,12 @@ struct LiveMapTab: View {
             // Full-screen map
             MapViewContainer(
                 flights: flights,
+                transitSegments: transitSegments,
                 position: $mapPosition,
                 selectedFlight: $selectedFlight,
-                mapStyleMode: mapStyleMode
+                selectedTransit: $selectedTransit,
+                mapStyleMode: mapStyleMode,
+                filter: listFilter
             )
             .ignoresSafeArea()
 
@@ -126,7 +149,7 @@ struct LiveMapTab: View {
                 // Top bar - only show when sheet is collapsed or dismissed
                 HStack(alignment: .top) {
                     // T-Minus Countdown Widget (only visible when sheet is small)
-                    if let overlayFlight = topOverlayFlight, sheetDetent == .fraction(0.12) {
+                    if let overlayFlight = topOverlayFlight, sheetDetent == .fraction(0.12), selectedTransit == nil {
                         TMinusCountdownView(
                             flight: overlayFlight,
                             isTracking: isTrackingFlight,
@@ -139,6 +162,19 @@ struct LiveMapTab: View {
                             .transition(.scale.combined(with: .opacity))
                     }
 
+                    // Transit Countdown Widget (only visible when transit selected and sheet is small)
+                    if let transit = selectedTransit, sheetDetent == .fraction(0.12) {
+                        TransitCountdownView(
+                            transit: transit,
+                            isTracking: true,
+                            onCloseTracking: { selectedTransit = nil }
+                        )
+                            .onTapGesture {
+                                activeSheet = .transitDetail(transit)
+                            }
+                            .transition(.scale.combined(with: .opacity))
+                    }
+
                     Spacer()
 
                     // Map style toggle
@@ -146,15 +182,33 @@ struct LiveMapTab: View {
                         mapStyleMode.toggle()
                     }
 
-                    // Add flight button
-                    FloatingButton(systemImage: "plus") {
-                        activeSheet = .addFlight
+                    // Add flight/transit menu
+                    Menu {
+                        Button(action: {
+                            activeSheet = .addFlight
+                        }) {
+                            Label("Add Flight", systemImage: "airplane")
+                        }
+                        Button(action: {
+                            activeSheet = .addTransit
+                        }) {
+                            Label("Add Transit", systemImage: "bus")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                            .padding(4)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .shadow(color: .black.opacity(0.1), radius: 1.5, y: 1)
                     }
+                    .foregroundColor(.primary)
 
                     // Show flight list button / close button when list is open
                     if activeSheet == .flightList {
                         FloatingButton(systemImage: "xmark", isClose: true) {
                             activeSheet = nil
+                            sheetDetent = .fraction(0.12)  // Reset to collapsed state
                         }
                     } else {
                         FloatingButton(systemImage: "list.bullet") {
@@ -174,20 +228,41 @@ struct LiveMapTab: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .flightList:
-                FlightListSheet(
+                CombinedListSheet(
                     flights: flights,
+                    transitSegments: transitSegments,
                     selectedFlight: $selectedFlight,
+                    selectedTransit: $selectedTransit,
+                    filter: $listFilter,
                     onSelectFlight: { flight in
+                        selectedTransit = nil
                         selectFlightWithAnimation(flight)
-                        // Collapse sheet when flight is selected to see map
+                        sheetDetent = .fraction(0.12)
+                        activeSheet = nil
+                    },
+                    onSelectTransit: { transit in
+                        selectedFlight = nil
+                        selectTransitWithAnimation(transit)
                         sheetDetent = .fraction(0.12)
                         activeSheet = nil
                     },
                     onDeleteFlight: { flight in
                         safeDeleteFlight(flight)
                     },
+                    onDeleteTransit: { transit in
+                        safeDeleteTransit(transit)
+                    },
                     onAddFlight: {
                         activeSheet = .addFlight
+                    },
+                    onAddTransit: {
+                        activeSheet = .addTransit
+                    },
+                    onViewFlightDetail: { flight in
+                        activeSheet = .flightDetail(flight)
+                    },
+                    onViewTransitDetail: { transit in
+                        activeSheet = .transitDetail(transit)
                     }
                 )
                 .presentationDetents(
@@ -275,6 +350,19 @@ struct LiveMapTab: View {
                 }
                 .presentationBackground(Color(.systemGroupedBackground))
 
+            case .addTransit:
+                AddTransitSheet { transit in
+                    modelContext.insert(transit)
+                    try? modelContext.save()
+                    selectionHaptic.impactOccurred()
+                    activeSheet = nil
+                }
+                .presentationBackground(Color(.systemGroupedBackground))
+
+            case .transitDetail(let transit):
+                TransitDetailView(transit: transit)
+                    .presentationBackground(Color(.systemGroupedBackground))
+
             }
         }
         .onChange(of: selectedFlight) { _, _ in
@@ -335,6 +423,33 @@ struct LiveMapTab: View {
         }
     }
 
+    private func selectTransitWithAnimation(_ transit: TransitSegment) {
+        selectionHaptic.impactOccurred()
+
+        let originCoord = transit.originCoordinate
+        let destCoord = transit.destinationCoordinate
+
+        let midLat = (originCoord.latitude + destCoord.latitude) / 2
+        let midLon = (originCoord.longitude + destCoord.longitude) / 2
+        let center = CLLocationCoordinate2D(latitude: midLat, longitude: midLon)
+
+        let latDelta = abs(destCoord.latitude - originCoord.latitude) * 1.4
+        let lonDelta = abs(destCoord.longitude - originCoord.longitude) * 1.4
+
+        let region = MKCoordinateRegion(
+            center: center,
+            span: MKCoordinateSpan(
+                latitudeDelta: max(latDelta, 2),
+                longitudeDelta: max(lonDelta, 2)
+            )
+        )
+
+        withAnimation(.interpolatingSpring(stiffness: 50, damping: 10)) {
+            selectedTransit = transit
+            mapPosition = .region(region)
+        }
+    }
+
     // MARK: - SwiftData Safe Deletion (Bug Fix 2)
 
     private func safeDeleteFlight(_ flight: Flight) {
@@ -368,6 +483,27 @@ struct LiveMapTab: View {
         } catch {
             print("ERROR deleting flight: \(error.localizedDescription)")
             print("Delete error: \(error)")
+        }
+    }
+
+    private func safeDeleteTransit(_ transit: TransitSegment) {
+        deleteHaptic.notificationOccurred(.warning)
+
+        let transitId = transit.id
+
+        if selectedTransit?.id == transitId {
+            selectedTransit = nil
+        }
+
+        do {
+            let descriptor = FetchDescriptor<TransitSegment>(predicate: #Predicate { $0.id == transitId })
+            let transitsToDelete = try modelContext.fetch(descriptor)
+            for transitToDelete in transitsToDelete {
+                modelContext.delete(transitToDelete)
+            }
+            try modelContext.save()
+        } catch {
+            print("ERROR deleting transit: \(error.localizedDescription)")
         }
     }
 
@@ -561,6 +697,133 @@ struct TMinusCountdownView: View {
     }
 }
 
+// MARK: - Transit Countdown Widget
+
+struct TransitCountdownView: View {
+    let transit: TransitSegment
+    let isTracking: Bool
+    let onCloseTracking: (() -> Void)?
+    @State private var timeRemaining: TimeInterval = 0
+
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: transit.transitType.icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(statusGradient)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(isTracking ? "TRACKING" : "NEXT TRANSIT")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.secondary)
+
+                Text(countdownString)
+                    .font(.system(size: 17, weight: .bold, design: .monospaced))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .foregroundStyle(statusGradient)
+
+                Text("\(transit.operatorName)  \(shortenLocation(transit.originName)) → \(shortenLocation(transit.destinationName))")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let onCloseTracking {
+                Button(action: onCloseTracking) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop tracking")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(minWidth: 220, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+        .onReceive(timer) { _ in
+            updateTimeRemaining()
+        }
+        .onAppear {
+            updateTimeRemaining()
+        }
+    }
+
+    private func updateTimeRemaining() {
+        timeRemaining = max(0, transit.scheduledDeparture.timeIntervalSinceNow)
+    }
+
+    private func shortenLocation(_ location: String) -> String {
+        let parts = location.components(separatedBy: ",")
+        if let first = parts.first?.trimmingCharacters(in: .whitespaces) {
+            return String(first.prefix(10))
+        }
+        return String(location.prefix(10))
+    }
+
+    private var countdownString: String {
+        if timeRemaining <= 0 {
+            return "DEPARTED"
+        }
+
+        let hours = Int(timeRemaining) / 3600
+        let minutes = (Int(timeRemaining) % 3600) / 60
+        let seconds = Int(timeRemaining) % 60
+
+        if hours > 24 {
+            let days = hours / 24
+            return "T-\(days)d \(hours % 24)h"
+        } else if hours > 0 {
+            return String(format: "T-%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            return String(format: "T-%02d:%02d", minutes, seconds)
+        }
+    }
+
+    private var statusGradient: LinearGradient {
+        let hours = timeRemaining / 3600
+        let transitColor = transitTypeColor
+
+        if hours < 1 {
+            // Imminent - vibrant to orange
+            return LinearGradient(
+                colors: [transitColor, .orange],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        } else if hours < 6 {
+            // Soon - color to yellow
+            return LinearGradient(
+                colors: [transitColor, transitColor.opacity(0.7)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        } else {
+            // Relaxed - transit type color
+            return LinearGradient(
+                colors: [transitColor, transitColor],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        }
+    }
+
+    private var transitTypeColor: Color {
+        switch transit.transitType {
+        case .bus: return .orange
+        case .ferry: return .teal
+        case .train: return .purple
+        }
+    }
+}
+
 // MARK: - Floating Button Component
 
 struct FloatingButton: View {
@@ -577,9 +840,9 @@ struct FloatingButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(isClose ? .system(size: 14, weight: .bold) : .system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .frame(width: 32, height: 32)
-                .padding(6)
+                .padding(4)
                 .background(.ultraThinMaterial, in: Circle())
                 .shadow(color: .black.opacity(0.1), radius: 1.5, y: 1)
         }
@@ -604,6 +867,388 @@ struct ActionChip: View {
                 .background(.ultraThinMaterial, in: Capsule())
         }
         .foregroundColor(.primary)
+    }
+}
+
+// MARK: - List Filter
+
+enum ListFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case flights = "Flights"
+    case transit = "Transit"
+
+    var id: String { rawValue }
+}
+
+// MARK: - Combined List Sheet (Flights + Transit)
+
+struct CombinedListSheet: View {
+    let flights: [Flight]
+    let transitSegments: [TransitSegment]
+    @Binding var selectedFlight: Flight?
+    @Binding var selectedTransit: TransitSegment?
+    @Binding var filter: ListFilter
+    let onSelectFlight: (Flight) -> Void
+    let onSelectTransit: (TransitSegment) -> Void
+    let onDeleteFlight: (Flight) -> Void
+    let onDeleteTransit: (TransitSegment) -> Void
+    let onAddFlight: () -> Void
+    let onAddTransit: () -> Void
+    let onViewFlightDetail: (Flight) -> Void
+    let onViewTransitDetail: (TransitSegment) -> Void
+
+    @State private var showAddMenu = false
+
+    private let selectionHaptic = UIImpactFeedbackGenerator(style: .medium)
+    private let deleteHaptic = UINotificationFeedbackGenerator()
+
+    // Combine and sort all items by departure date
+    private var upcomingFlights: [Flight] {
+        flights
+            .filter { $0.scheduledDeparture >= Date() }
+            .sorted { $0.scheduledDeparture < $1.scheduledDeparture }
+    }
+
+    private var pastFlights: [Flight] {
+        flights
+            .filter { $0.scheduledDeparture < Date() }
+            .sorted { $0.scheduledDeparture > $1.scheduledDeparture }
+    }
+
+    private var upcomingTransit: [TransitSegment] {
+        transitSegments
+            .filter { $0.scheduledDeparture >= Date() }
+            .sorted { $0.scheduledDeparture < $1.scheduledDeparture }
+    }
+
+    private var pastTransit: [TransitSegment] {
+        transitSegments
+            .filter { $0.scheduledDeparture < Date() }
+            .sorted { $0.scheduledDeparture > $1.scheduledDeparture }
+    }
+
+    private var filteredUpcomingFlights: [Flight] {
+        filter == .transit ? [] : upcomingFlights
+    }
+
+    private var filteredPastFlights: [Flight] {
+        filter == .transit ? [] : pastFlights
+    }
+
+    private var filteredUpcomingTransit: [TransitSegment] {
+        filter == .flights ? [] : upcomingTransit
+    }
+
+    private var filteredPastTransit: [TransitSegment] {
+        filter == .flights ? [] : pastTransit
+    }
+
+    private var hasUpcoming: Bool {
+        !filteredUpcomingFlights.isEmpty || !filteredUpcomingTransit.isEmpty
+    }
+
+    private var hasPast: Bool {
+        !filteredPastFlights.isEmpty || !filteredPastTransit.isEmpty
+    }
+
+    private var isEmpty: Bool {
+        filteredUpcomingFlights.isEmpty && filteredPastFlights.isEmpty &&
+        filteredUpcomingTransit.isEmpty && filteredPastTransit.isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header
+                HStack(spacing: 12) {
+                    Color.clear
+                        .frame(width: 36, height: 36)
+
+                    Text("My Trips")
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    Menu {
+                        Button {
+                            onAddFlight()
+                        } label: {
+                            Label("Add Flight", systemImage: "airplane")
+                        }
+                        Button {
+                            onAddTransit()
+                        } label: {
+                            Label("Add Transit", systemImage: "bus.fill")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                    }
+                    .foregroundStyle(.blue)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 12)
+                .background(Color(.systemGroupedBackground))
+
+                // Segmented filter
+                Picker("Filter", selection: $filter) {
+                    ForEach(ListFilter.allCases) { filterOption in
+                        Text(filterOption.rawValue).tag(filterOption)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+                .background(Color(.systemGroupedBackground))
+
+                // List content
+                if isEmpty {
+                    emptyStateView
+                } else {
+                    listContent
+                }
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .onAppear {
+            selectionHaptic.prepare()
+            deleteHaptic.prepare()
+        }
+    }
+
+    private var emptyStateView: some View {
+        ContentUnavailableView {
+            Label(emptyStateTitle, systemImage: emptyStateIcon)
+        } description: {
+            Text(emptyStateDescription)
+        }
+        .symbolEffect(.pulse.byLayer, options: .repeating)
+    }
+
+    private var emptyStateTitle: String {
+        switch filter {
+        case .all: return "No Trips Yet"
+        case .flights: return "No Flights Yet"
+        case .transit: return "No Transit Yet"
+        }
+    }
+
+    private var emptyStateIcon: String {
+        switch filter {
+        case .all: return "airplane.departure"
+        case .flights: return "airplane"
+        case .transit: return "bus.fill"
+        }
+    }
+
+    private var emptyStateDescription: String {
+        switch filter {
+        case .all: return "Tap + to add a flight or transit segment."
+        case .flights: return "Tap + to add your first flight."
+        case .transit: return "Tap + to add your first transit segment."
+        }
+    }
+
+    private var listContent: some View {
+        List {
+            // Upcoming section
+            Section {
+                if !hasUpcoming {
+                    HStack {
+                        Image(systemName: "calendar.badge.clock")
+                            .foregroundStyle(.secondary)
+                        Text("No upcoming trips")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Color.clear)
+                } else {
+                    // Combine and sort upcoming items by departure time
+                    ForEach(sortedUpcomingItems, id: \.id) { item in
+                        switch item {
+                        case .flight(let flight):
+                            FlightListItemView(
+                                flight: flight,
+                                isSelected: selectedFlight?.id == flight.id,
+                                isUpcoming: true
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectionHaptic.impactOccurred()
+                                onSelectFlight(flight)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteHaptic.notificationOccurred(.warning)
+                                    onDeleteFlight(flight)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    onViewFlightDetail(flight)
+                                } label: {
+                                    Label("Details", systemImage: "info.circle")
+                                }
+                                .tint(.blue)
+                            }
+                        case .transit(let transit):
+                            TransitListItemView(
+                                transit: transit,
+                                isSelected: selectedTransit?.id == transit.id,
+                                isUpcoming: true
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectionHaptic.impactOccurred()
+                                onSelectTransit(transit)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteHaptic.notificationOccurred(.warning)
+                                    onDeleteTransit(transit)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    onViewTransitDetail(transit)
+                                } label: {
+                                    Label("Details", systemImage: "info.circle")
+                                }
+                                .tint(.blue)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                SectionHeader(title: "Upcoming", count: upcomingCount, icon: "airplane.departure")
+            }
+
+            // Past section
+            Section {
+                if !hasPast {
+                    HStack {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .foregroundStyle(.secondary)
+                        Text("No past trips")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Color.clear)
+                } else {
+                    ForEach(sortedPastItems, id: \.id) { item in
+                        switch item {
+                        case .flight(let flight):
+                            FlightListItemView(
+                                flight: flight,
+                                isSelected: selectedFlight?.id == flight.id,
+                                isUpcoming: false
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectionHaptic.impactOccurred()
+                                onSelectFlight(flight)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteHaptic.notificationOccurred(.warning)
+                                    onDeleteFlight(flight)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    onViewFlightDetail(flight)
+                                } label: {
+                                    Label("Details", systemImage: "info.circle")
+                                }
+                                .tint(.blue)
+                            }
+                        case .transit(let transit):
+                            TransitListItemView(
+                                transit: transit,
+                                isSelected: selectedTransit?.id == transit.id,
+                                isUpcoming: false
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectionHaptic.impactOccurred()
+                                onSelectTransit(transit)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteHaptic.notificationOccurred(.warning)
+                                    onDeleteTransit(transit)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    onViewTransitDetail(transit)
+                                } label: {
+                                    Label("Details", systemImage: "info.circle")
+                                }
+                                .tint(.blue)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                SectionHeader(title: "Past", count: pastCount, icon: "airplane.arrival")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
+    }
+
+    // Helper enum for unified list items
+    private enum TripItem {
+        case flight(Flight)
+        case transit(TransitSegment)
+
+        var id: String {
+            switch self {
+            case .flight(let f): return "flight-\(f.id)"
+            case .transit(let t): return "transit-\(t.id)"
+            }
+        }
+
+        var departureDate: Date {
+            switch self {
+            case .flight(let f): return f.scheduledDeparture
+            case .transit(let t): return t.scheduledDeparture
+            }
+        }
+    }
+
+    private var sortedUpcomingItems: [TripItem] {
+        var items: [TripItem] = []
+        items.append(contentsOf: filteredUpcomingFlights.map { .flight($0) })
+        items.append(contentsOf: filteredUpcomingTransit.map { .transit($0) })
+        return items.sorted { $0.departureDate < $1.departureDate }
+    }
+
+    private var sortedPastItems: [TripItem] {
+        var items: [TripItem] = []
+        items.append(contentsOf: filteredPastFlights.map { .flight($0) })
+        items.append(contentsOf: filteredPastTransit.map { .transit($0) })
+        return items.sorted { $0.departureDate > $1.departureDate }
+    }
+
+    private var upcomingCount: Int {
+        filteredUpcomingFlights.count + filteredUpcomingTransit.count
+    }
+
+    private var pastCount: Int {
+        filteredPastFlights.count + filteredPastTransit.count
     }
 }
 
@@ -747,11 +1392,17 @@ private struct AddFlightSheet: View {
                                 searchResult = nil
                             }
 
+                            // Custom date picker with highlighting
+                            let isCustomDate = !Calendar.current.isDateInToday(selectedDate) && !Calendar.current.isDateInTomorrow(selectedDate)
                             DatePicker("", selection: $selectedDate, displayedComponents: .date)
                                 .labelsHidden()
                                 .onChange(of: selectedDate) { _, _ in
                                     searchResult = nil
                                 }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(isCustomDate ? Color.blue.opacity(0.12) : Color(.systemGray6), in: RoundedRectangle(cornerRadius: 8))
+                                .frame(maxWidth: .infinity)
                         }
 
                         Text(selectedDate, format: .dateTime.weekday(.wide).month().day())

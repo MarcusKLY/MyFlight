@@ -163,6 +163,40 @@ final class Flight {
         set { statusRawValue = newValue.rawValue }
     }
 
+    /// Computed status based on actual timestamps - overrides stored status for accuracy.
+    var computedFlightStatus: FlightStatus {
+        let now = Date()
+        
+        // If flight has actually arrived, it's arrived
+        if actualArrival != nil {
+            return .arrived
+        }
+        
+        // If flight has actually departed, check if it should be arrived based on best arrival estimate
+        if actualDeparture != nil {
+            // Use effective arrival which accounts for delays: actual > estimated > scheduled
+            let arrivalEstimate = effectiveArrival ?? Date.distantFuture
+            if now > arrivalEstimate {
+                return .arrived
+            }
+            return .enRoute
+        }
+        
+        // If departure time has passed, flight has departed or is in air
+        let departureCutoff = estimatedDeparture ?? revisedDeparture ?? scheduledDeparture
+        if now > departureCutoff {
+            // Use effective arrival for delayed arrivals
+            let arrivalEstimate = effectiveArrival ?? Date.distantFuture
+            if now > arrivalEstimate {
+                return .arrived
+            }
+            return .enRoute
+        }
+        
+        // Flight hasn't departed yet
+        return flightStatus
+    }
+
     // Keep compatibility with existing call sites that still reference `date`.
     var date: Date {
         scheduledDeparture
@@ -180,7 +214,7 @@ final class Flight {
 
     /// True when we have definitive arrival confirmation.
     var hasLanded: Bool {
-        flightStatus == .arrived || actualArrival != nil
+        computedFlightStatus == .arrived || actualArrival != nil
     }
 
     /// Best arrival time for progress calculation and timeline completion.

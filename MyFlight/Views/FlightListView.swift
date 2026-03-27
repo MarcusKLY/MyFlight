@@ -242,7 +242,7 @@ struct FlightListItemView: View {
                     progress: currentProgress,
                     isInFlight: isInFlight,
                     duration: flight.durationFormatted,
-                    status: flight.flightStatus,
+                    status: flight.computedFlightStatus,
                     isDelayed: (flight.arrivalDelayMinutes ?? 0) > 0
                 )
 
@@ -269,7 +269,7 @@ struct FlightListItemView: View {
 
             // Status badges row
             HStack(spacing: 8) {
-                StatusBadge(status: flight.flightStatus)
+                StatusBadge(status: flight.computedFlightStatus)
 
                 if let delay = flight.departureDelayMinutes, delay > 0 {
                     DelayBadge(minutes: delay)

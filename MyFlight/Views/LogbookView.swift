@@ -14,6 +14,7 @@ import UniformTypeIdentifiers
 struct LogbookView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Flight.scheduledDeparture, order: .reverse) private var flights: [Flight]
+    @Query(sort: \TransitSegment.scheduledDeparture, order: .reverse) private var transitSegments: [TransitSegment]
     @Query(sort: \Airport.iataCode) private var airports: [Airport]
 
     @State private var showClearDataAlert = false
@@ -31,6 +32,8 @@ struct LogbookView: View {
 
     // Statistics
     private var totalFlights: Int { flights.count }
+    private var totalTransit: Int { transitSegments.count }
+    private var totalTrips: Int { flights.count + transitSegments.count }
 
     private var upcomingFlights: [Flight] {
         flights.filter { $0.scheduledDeparture >= Date() }
@@ -39,16 +42,29 @@ struct LogbookView: View {
     private var pastFlights: [Flight] {
         flights.filter { $0.scheduledDeparture < Date() }
     }
+    
+    private var upcomingTransit: [TransitSegment] {
+        transitSegments.filter { $0.scheduledDeparture >= Date() }
+    }
+    
+    private var pastTransit: [TransitSegment] {
+        transitSegments.filter { $0.scheduledDeparture < Date() }
+    }
 
     private var totalMiles: Int {
-        flights.reduce(0) { total, flight in
+        let flightMiles = flights.reduce(0) { total, flight in
             total + calculateDistanceMiles(from: flight.origin, to: flight.destination)
         }
+        let transitMiles = transitSegments.reduce(0) { total, transit in
+            total + Int(transit.distanceMiles ?? 0)
+        }
+        return flightMiles + transitMiles
     }
 
     private var totalHours: Int {
-        let totalMinutes = flights.compactMap { $0.durationMinutes }.reduce(0, +)
-        return totalMinutes / 60
+        let flightMinutes = flights.compactMap { $0.durationMinutes }.reduce(0, +)
+        let transitMinutes = transitSegments.compactMap { $0.durationMinutes }.reduce(0, +)
+        return (flightMinutes + transitMinutes) / 60
     }
 
     private var uniqueAirports: Int {
@@ -173,6 +189,11 @@ struct LogbookView: View {
         for flight in flights {
             modelContext.delete(flight)
         }
+        
+        // Delete all transit segments
+        for transit in transitSegments {
+            modelContext.delete(transit)
+        }
 
         // Delete all airports
         for airport in airports {
@@ -208,7 +229,8 @@ struct LogbookView: View {
     private func exportBackup() {
         let backup = LogbookBackup(
             airports: airports.map { AirportBackup(from: $0) },
-            flights: flights.map { FlightBackup(from: $0) }
+            flights: flights.map { FlightBackup(from: $0) },
+            transitSegments: transitSegments.map { TransitBackup(from: $0) }
         )
 
         do {
@@ -305,10 +327,37 @@ struct LogbookView: View {
                 )
                 modelContext.insert(flight)
             }
+            
+            // Insert transit segments (optional for backward compatibility)
+            if let transitBackups = backup.transitSegments {
+                for transitBackup in transitBackups {
+                    guard let transitType = TransitType(rawValue: transitBackup.transitType) else {
+                        continue
+                    }
+                    
+                    let transit = TransitSegment(
+                        transitType: transitType,
+                        operatorName: transitBackup.operatorName,
+                        routeNumber: transitBackup.routeNumber,
+                        originName: transitBackup.originName,
+                        originLatitude: transitBackup.originLatitude,
+                        originLongitude: transitBackup.originLongitude,
+                        destinationName: transitBackup.destinationName,
+                        destinationLatitude: transitBackup.destinationLatitude,
+                        destinationLongitude: transitBackup.destinationLongitude,
+                        scheduledDeparture: transitBackup.scheduledDeparture,
+                        scheduledArrival: transitBackup.scheduledArrival,
+                        estimatedDeparture: transitBackup.estimatedDeparture,
+                        actualDeparture: transitBackup.actualDeparture,
+                        notes: transitBackup.notes
+                    )
+                    modelContext.insert(transit)
+                }
+            }
 
             try modelContext.save()
 
-            importResultMessage = "Backup imported successfully."
+            importResultMessage = "Successfully imported \(backup.flights.count) flights, \(backup.transitSegments?.count ?? 0) transit segments, and \(backup.airports.count) airports."
             showImportResultAlert = true
         } catch {
             importResultMessage = "Failed to import backup: \(error.localizedDescription)"
@@ -319,6 +368,7 @@ struct LogbookView: View {
     private struct LogbookBackup: Codable {
         let airports: [AirportBackup]
         let flights: [FlightBackup]
+        let transitSegments: [TransitBackup]?  // Optional for backward compatibility
     }
 
     private struct AirportBackup: Codable {
@@ -408,6 +458,40 @@ struct LogbookView: View {
             self.flightStatus = flight.flightStatus.rawValue
         }
     }
+    
+    private struct TransitBackup: Codable {
+        let transitType: String
+        let operatorName: String
+        let routeNumber: String
+        let originName: String
+        let originLatitude: Double
+        let originLongitude: Double
+        let destinationName: String
+        let destinationLatitude: Double
+        let destinationLongitude: Double
+        let scheduledDeparture: Date
+        let scheduledArrival: Date
+        let estimatedDeparture: Date?
+        let actualDeparture: Date?
+        let notes: String?
+        
+        init(from transit: TransitSegment) {
+            self.transitType = transit.transitType.rawValue
+            self.operatorName = transit.operatorName
+            self.routeNumber = transit.routeNumber
+            self.originName = transit.originName
+            self.originLatitude = transit.originLatitude
+            self.originLongitude = transit.originLongitude
+            self.destinationName = transit.destinationName
+            self.destinationLatitude = transit.destinationLatitude
+            self.destinationLongitude = transit.destinationLongitude
+            self.scheduledDeparture = transit.scheduledDeparture
+            self.scheduledArrival = transit.scheduledArrival
+            self.estimatedDeparture = transit.estimatedDeparture
+            self.actualDeparture = transit.actualDeparture
+            self.notes = transit.notes
+        }
+    }
 
     // MARK: - Hero Card
 
@@ -453,6 +537,14 @@ struct LogbookView: View {
                 equivalentStat(
                     value: "\(totalFlights)",
                     label: "Flights"
+                )
+                
+                Divider()
+                    .frame(height: 30)
+                
+                equivalentStat(
+                    value: "\(totalTransit)",
+                    label: "Transit"
                 )
             }
         }

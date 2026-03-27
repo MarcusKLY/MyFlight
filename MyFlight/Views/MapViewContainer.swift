@@ -19,14 +19,18 @@ enum FlightMapStyleMode {
 
 struct MapViewContainer: View {
     let flights: [Flight]
+    let transitSegments: [TransitSegment]
     @Binding var position: MapCameraPosition
     @Binding var selectedFlight: Flight?
+    @Binding var selectedTransit: TransitSegment?
     let mapStyleMode: FlightMapStyleMode
+    let filter: ListFilter
     
     var body: some View {
         ZStack {
             Map(position: $position) {
-                ForEach(flights) { flight in
+                // MARK: - Flight Routes
+                ForEach(visibleFlights) { flight in
                     // Draw geodesic paths
                     let pathCoordinates = generateGeodesicPath(
                         from: flight.origin.coordinate,
@@ -90,10 +94,72 @@ struct MapViewContainer: View {
                         )
                     }
                 }
+
+                // MARK: - Transit Routes
+                ForEach(visibleTransit) { transit in
+                    let pathCoordinates = generateGeodesicPath(
+                        from: transit.originCoordinate,
+                        to: transit.destinationCoordinate,
+                        steps: 100
+                    )
+
+                    let isSelected = selectedTransit?.id == transit.id
+                    let transitColor = transitTypeColor(for: transit.transitType)
+
+                    // Background polyline: all transit as more visible
+                    if !isSelected {
+                        MapPolyline(coordinates: pathCoordinates)
+                            .stroke(
+                                transitColor.opacity(0.7),
+                                lineWidth: 2
+                            )
+                    }
+
+                    // Highlighted route for selected transit - solid orange
+                    if isSelected {
+                        MapPolyline(coordinates: pathCoordinates)
+                            .stroke(
+                                Color.orange,
+                                lineWidth: 4
+                            )
+                    }
+
+                    // Origin transit marker - only when selected
+                    if isSelected {
+                        Annotation("", coordinate: transit.originCoordinate) {
+                            TransitMarker(
+                                name: shortenName(transit.originName),
+                                transitType: transit.transitType,
+                                isOrigin: true,
+                                isSelected: isSelected
+                            )
+                        }
+                    }
+
+                    // Destination transit marker - only when selected
+                    if isSelected {
+                        Annotation("", coordinate: transit.destinationCoordinate) {
+                            TransitMarker(
+                                name: shortenName(transit.destinationName),
+                                transitType: transit.transitType,
+                                isOrigin: false,
+                                isSelected: isSelected
+                            )
+                        }
+                    }
+                }
             }
             .mapStyle(mapStyle)
             .ignoresSafeArea()
         }
+    }
+
+    private var visibleFlights: [Flight] {
+        filter == .transit ? [] : flights
+    }
+
+    private var visibleTransit: [TransitSegment] {
+        filter == .flights ? [] : transitSegments
     }
 
     private var mapStyle: MapStyle {
@@ -118,6 +184,25 @@ struct MapViewContainer: View {
         let remaining = max(0.0, Double(30 - elapsedDays) / 30.0)
         return 0.25 + (remaining * 0.75)
     }
+
+    private func transitTypeColor(for type: TransitType) -> Color {
+        switch type {
+        case .bus: return .orange
+        case .ferry: return .teal
+        case .train: return .purple
+        }
+    }
+
+    private func shortenName(_ name: String) -> String {
+        let parts = name.components(separatedBy: ",")
+        if let first = parts.first?.trimmingCharacters(in: .whitespaces) {
+            if first.count > 8 {
+                return String(first.prefix(6)) + "…"
+            }
+            return first
+        }
+        return name
+    }
 }
 
 struct AirportMarker: View {
@@ -139,20 +224,46 @@ struct AirportMarker: View {
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.white)
                     }
-
-                    Text(iataCode)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.9))
-                        .cornerRadius(4)
                 }
             } else {
                 Circle()
                     .fill(Color.gray.opacity(0.7))
                     .frame(width: 8, height: 8)
                     .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
+            }
+        }
+    }
+}
+
+// MARK: - Transit Marker
+
+struct TransitMarker: View {
+    let name: String
+    let transitType: TransitType
+    let isOrigin: Bool
+    let isSelected: Bool
+
+    private var markerColor: Color {
+        switch transitType {
+        case .bus: return .orange
+        case .ferry: return .teal
+        case .train: return .purple
+        }
+    }
+
+    var body: some View {
+        Group {
+            if isSelected {
+                ZStack {
+                    Circle()
+                        .fill(isOrigin ? markerColor : markerColor.opacity(0.8))
+                        .frame(width: 28, height: 28)
+                        .shadow(radius: 6)
+
+                    Image(systemName: transitType.icon)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.white)
+                }
             }
         }
     }
@@ -212,8 +323,11 @@ struct FlightInfoCard: View {
 #Preview {
     MapViewContainer(
         flights: [],
+        transitSegments: [],
         position: .constant(.automatic),
         selectedFlight: .constant(nil),
-        mapStyleMode: .mutedStandard
+        selectedTransit: .constant(nil),
+        mapStyleMode: .mutedStandard,
+        filter: .all
     )
 }

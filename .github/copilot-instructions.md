@@ -1,6 +1,6 @@
 # GitHub Copilot Instructions for MyFlight
 
-MyFlight is an iOS flight tracking app built with SwiftUI and SwiftData. This guide covers project-specific conventions and architecture patterns to help AI assistants work effectively in this codebase.
+MyFlight is an iOS trip tracking app built with SwiftUI and SwiftData. It supports flight tracking with live API data and transit segments (bus, ferry, train) with manual entry. This guide covers project-specific conventions and architecture patterns.
 
 ## Build & Run
 
@@ -46,7 +46,7 @@ FLIGHT_API_KEYS = key_one,key_two,key_three
 
 ### Pattern: MVVM + Repository with SwiftData
 
-- **Models**: SwiftData `@Model` classes in `Models/` (Flight, Airport)
+- **Models**: SwiftData `@Model` classes in `Models/` (Flight, Airport, TransitSegment)
 - **Views**: Stateless SwiftUI components in `Views/`, reactively bound via `@Query`
 - **Services**: Stateless utility structs/enums in `Utilities/` (FlightLookupService, AircraftImageMapper)
 - **Navigation**: Tab-based architecture with sheet-driven detail flows
@@ -62,12 +62,16 @@ MyFlight/
 ├── Models/                    # @Model decorated domain models
 │   ├── Flight.swift           # 60+ fields: timestamps, aircraft, gates
 │   ├── Airport.swift          # IATA code, coordinates, timezone
+│   ├── TransitSegment.swift   # Bus/ferry/train segments with coordinates
 │   └── FlightData.swift       # Seed data utilities
 ├── Views/                     # SwiftUI components
 │   ├── FlightListView.swift   # Upcoming/past sections with @Query
 │   ├── FlightDetailView.swift # Full timeline + flip animation
+│   ├── TransitListItemView.swift   # Transit row with progress line
+│   ├── TransitDetailView.swift     # Transit detail sheet
+│   ├── AddTransitSheet.swift       # Manual transit entry with MapKit search
 │   ├── LogbookView.swift      # Stats, import/export
-│   ├── MapViewContainer.swift # MapKit rendering + geodesic paths
+│   ├── MapViewContainer.swift # MapKit rendering + geodesic paths (flights + transit)
 │   └── AirlineLogoView.swift  # Branding component
 ├── Utilities/                 # Services & helpers
 │   ├── FlightLookupService.swift  # RapidAPI integration
@@ -117,11 +121,53 @@ Views use `@Query` macro for reactive data binding:
 ```swift
 struct LiveMapTab: View {
     @Query(sort: \Flight.scheduledDeparture, order: .reverse) private var flights: [Flight]
+    @Query(sort: \TransitSegment.scheduledDeparture, order: .reverse) private var transitSegments: [TransitSegment]
     @Query(sort: \Airport.iataCode) private var airports: [Airport]
 }
 ```
 
 **Never manually sync state** — SwiftData auto-updates views when underlying data changes.
+
+## Transit Segment Model
+
+TransitSegment handles bus, ferry, and train journeys with simpler timestamps than Flight:
+
+```swift
+@Model
+final class TransitSegment {
+    @Attribute(.unique) var id: UUID
+    
+    var transitType: TransitType     // .bus, .ferry, .train
+    var routeNumber: String          // "FlixBus 832"
+    var operatorName: String         // "FlixBus"
+    
+    // Origin/destination with coordinates
+    var originName: String
+    var originLatitude: Double
+    var originLongitude: Double
+    
+    // Timestamps (simpler than Flight)
+    var scheduledDeparture: Date
+    var scheduledArrival: Date
+    var estimatedDeparture: Date?
+    var actualDeparture: Date?
+    
+    // Computed properties
+    var progress: Double?            // 0.0–1.0 time-based
+    var durationFormatted: String    // "2h 30m"
+}
+```
+
+**Transit types with icons**:
+- Bus: `bus.fill` (orange)
+- Ferry: `ferry.fill` (teal)
+- Train: `tram.fill` (purple)
+
+**Key differences from Flight**:
+- No aircraft/gate/terminal fields
+- Manual entry only (no API lookup currently)
+- Coordinates stored directly (not separate Airport objects)
+- Geodesic map visualization (consistent with flights)
 
 ## Flight Timeline Architecture
 

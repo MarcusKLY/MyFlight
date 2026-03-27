@@ -14,7 +14,7 @@ struct MyFlightApp: App {
 
     init() {
         do {
-            modelContainer = try ModelContainer(for: Airport.self, Flight.self)
+            modelContainer = try ModelContainer(for: Airport.self, Flight.self, TransitSegment.self)
             // Disabled auto-seeding - user can add flights manually
             // FlightSeedData.seedIfNeeded(in: modelContainer.mainContext)
         } catch {
