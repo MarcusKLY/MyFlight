@@ -144,6 +144,21 @@ struct LiveMapTab: View {
                             sheetDetent = .fraction(0.33)
                         }
                     }
+
+                    // Clear selected (stop tracking) button
+                    if selectedFlight != nil {
+                        Button {
+                            selectedFlight = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16, weight: .bold))
+                                .frame(width: 32, height: 32)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .foregroundColor(.red)
+                                .shadow(color: .black.opacity(0.15), radius: 1.5, y: 1)
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
@@ -194,12 +209,14 @@ struct LiveMapTab: View {
                 )
                 .presentationDragIndicator(.visible)
                 .presentationBackgroundInteraction(.enabled)
+                .presentationBackground(Color(.systemGroupedBackground))
                 .onAppear {
                     sheetDetent = .fraction(0.33)
                 }
 
             case .flightDetail(let flight):
                 FlightDetailView(flight: flight)
+                    .presentationBackground(Color(.systemGroupedBackground))
 
             case .addFlight:
                 AddFlightSheet(airports: FlightSeedData.defaultAirports(from: airports)) { draft in
@@ -246,12 +263,22 @@ struct LiveMapTab: View {
                         aircraftModel: draft.aircraftModel,
                         aircraftImageUrl: draft.aircraftImageUrl,
                         aircraftAge: draft.aircraftAge,
+                        aircraftTypeName: draft.aircraftTypeName,
+                        aircraftModelCode: draft.aircraftModelCode,
+                        aircraftSeatCount: draft.aircraftSeatCount,
+                        aircraftEngineCount: draft.aircraftEngineCount,
+                        aircraftEngineType: draft.aircraftEngineType,
+                        aircraftIsActive: draft.aircraftIsActive,
+                        aircraftIsFreighter: draft.aircraftIsFreighter,
+                        aircraftDataVerified: draft.aircraftDataVerified,
+                        aircraftManufacturedYear: draft.aircraftManufacturedYear,
                         tailNumber: draft.tailNumber,
                         distanceKm: draft.distanceKm,
                         distanceNm: draft.distanceNm,
                         distanceMiles: draft.distanceMiles,
                         callSign: draft.callSign,
-                        flightStatus: draft.flightStatus
+                        flightStatus: draft.flightStatus,
+                        aircraftRegistrationDate: draft.aircraftRegistrationDate
                     )
                     modelContext.insert(flight)
                     try? modelContext.save()
@@ -259,6 +286,7 @@ struct LiveMapTab: View {
                     selectionHaptic.impactOccurred()
                     activeSheet = nil
                 }
+                .presentationBackground(Color(.systemGroupedBackground))
 
             }
         }
@@ -341,8 +369,7 @@ struct LiveMapTab: View {
         // Delete directly - don't rely on @Query array iteration
         do {
             // Use a fetch descriptor to find the object in the context
-            var descriptor = FetchDescriptor<Flight>()
-            descriptor.predicate = #Predicate { $0.id == flightId }
+            let descriptor = FetchDescriptor<Flight>(predicate: #Predicate { $0.id == flightId })
 
             let flightsToDelete = try modelContext.fetch(descriptor)
             for flightToDelete in flightsToDelete {
@@ -365,7 +392,7 @@ struct LiveMapTab: View {
 
         do {
             // Delete all flights using fetch descriptor to avoid @Query iteration issues
-            var flightDescriptor = FetchDescriptor<Flight>()
+            let flightDescriptor = FetchDescriptor<Flight>()
             let allFlights = try modelContext.fetch(flightDescriptor)
             for flight in allFlights {
                 modelContext.delete(flight)
@@ -373,7 +400,7 @@ struct LiveMapTab: View {
             print("Marked all flights for deletion")
 
             // Delete all airports using fetch descriptor
-            var airportDescriptor = FetchDescriptor<Airport>()
+            let airportDescriptor = FetchDescriptor<Airport>()
             let allAirports = try modelContext.fetch(airportDescriptor)
             for airport in allAirports {
                 modelContext.delete(airport)
@@ -573,24 +600,41 @@ struct FlightListSheet: View {
 
     var body: some View {
         NavigationStack {
-            FlightListView(
-                flights: flights,
-                selectedFlight: $selectedFlight,
-                onSelectFlight: onSelectFlight,
-                onDeleteFlight: onDeleteFlight
-            )
-            .navigationTitle("My Flights")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+            VStack(spacing: 0) {
+                // Centered title with balanced side controls
+                HStack(spacing: 12) {
+                    Color.clear
+                        .frame(width: 36, height: 36)
+
+                    Text("My Flights")
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
                     Button {
                         onAddFlight()
                     } label: {
                         Image(systemName: "plus")
-                            .fontWeight(.semibold)
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 36, height: 36)
                     }
+                    .foregroundStyle(.blue)
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 16)
+                .background(Color(.systemGroupedBackground))
+
+                FlightListView(
+                    flights: flights,
+                    selectedFlight: $selectedFlight,
+                    onSelectFlight: onSelectFlight,
+                    onDeleteFlight: onDeleteFlight
+                )
             }
+            .background(Color(.systemGroupedBackground))
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
@@ -623,26 +667,50 @@ private struct AddFlightSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Flight Number Input
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("FLIGHT NUMBER")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.secondary)
+            VStack(spacing: 0) {
+                // Centered title with balanced side controls
+                HStack(spacing: 12) {
+                    Color.clear
+                        .frame(width: 36, height: 36)
 
-                        TextField("e.g. CX888, KL1252", text: $flightNumber)
-                            .font(.system(size: 28, weight: .bold))
-                            .textInputAutocapitalization(.characters)
-                            .autocorrectionDisabled()
-                            .padding()
-                            .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
-                            .onChange(of: flightNumber) { _, _ in
-                                // Clear previous search when typing
-                                searchResult = nil
-                                searchError = nil
-                            }
+                    Text("Add Flight")
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 36, height: 36)
                     }
+                    .foregroundStyle(.blue)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 16)
+                .background(Color(.systemGroupedBackground))
+
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Flight Number Input
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("FLIGHT NUMBER")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.secondary)
+
+                            TextField("e.g. CX888, KL1252", text: $flightNumber)
+                                .font(.system(size: 28, weight: .bold))
+                                .textInputAutocapitalization(.characters)
+                                .autocorrectionDisabled()
+                                .padding()
+                                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
+                                .onChange(of: flightNumber) { _, _ in
+                                    // Clear previous search when typing
+                                    searchResult = nil
+                                    searchError = nil
+                                }
+                        }
 
                     // Date Selection
                     VStack(alignment: .leading, spacing: 8) {
@@ -744,17 +812,10 @@ private struct AddFlightSheet: View {
                     Spacer()
                 }
                 .padding()
+                .frame(maxWidth: .infinity)
+                .background(Color(.systemGroupedBackground))
             }
-            .navigationTitle("Add Flight")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.primary)
-                    }
-                }
+            .background(Color(.systemGroupedBackground))
             }
             .sheet(isPresented: $showManualEntry) {
                 ManualFlightEntrySheet(
@@ -822,6 +883,16 @@ private struct AddFlightSheet: View {
             aircraftModel: result.aircraftModel,
             aircraftImageUrl: result.aircraftImageUrl,
             aircraftAge: result.aircraftAge,
+            aircraftTypeName: result.aircraftTypeName,
+            aircraftModelCode: result.aircraftModelCode,
+            aircraftSeatCount: result.aircraftSeatCount,
+            aircraftEngineCount: result.aircraftEngineCount,
+            aircraftEngineType: result.aircraftEngineType,
+            aircraftIsActive: result.aircraftIsActive,
+            aircraftIsFreighter: result.aircraftIsFreighter,
+            aircraftDataVerified: result.aircraftDataVerified,
+            aircraftManufacturedYear: result.aircraftManufacturedYear,
+            aircraftRegistrationDate: result.aircraftRegistrationDate,
             tailNumber: result.tailNumber,
             distanceKm: result.distanceKm,
             distanceNm: result.distanceNm,
@@ -877,12 +948,22 @@ private struct AddFlightSheet: View {
             aircraftModel: result.aircraftModel,
             aircraftImageUrl: result.aircraftImageUrl,
             aircraftAge: result.aircraftAge,
+            aircraftTypeName: result.aircraftTypeName,
+            aircraftModelCode: result.aircraftModelCode,
+            aircraftSeatCount: result.aircraftSeatCount,
+            aircraftEngineCount: result.aircraftEngineCount,
+            aircraftEngineType: result.aircraftEngineType,
+            aircraftIsActive: result.aircraftIsActive,
+            aircraftIsFreighter: result.aircraftIsFreighter,
+            aircraftDataVerified: result.aircraftDataVerified,
+            aircraftManufacturedYear: result.aircraftManufacturedYear,
             tailNumber: result.tailNumber,
             distanceKm: result.distanceKm,
             distanceNm: result.distanceNm,
             distanceMiles: result.distanceMiles,
             callSign: result.callSign,
-            flightStatus: result.status
+            flightStatus: result.status,
+            aircraftRegistrationDate: result.aircraftRegistrationDate
         )
     }
 }
@@ -1163,6 +1244,16 @@ private struct ManualFlightEntrySheet: View {
             aircraftModel: nil,
             aircraftImageUrl: nil,
             aircraftAge: nil,
+            aircraftTypeName: nil,
+            aircraftModelCode: nil,
+            aircraftSeatCount: nil,
+            aircraftEngineCount: nil,
+            aircraftEngineType: nil,
+            aircraftIsActive: nil,
+            aircraftIsFreighter: nil,
+            aircraftDataVerified: nil,
+            aircraftManufacturedYear: nil,
+            aircraftRegistrationDate: nil,
             tailNumber: nil,
             distanceKm: nil,
             distanceNm: nil,
@@ -1212,6 +1303,16 @@ private struct FlightDraft {
     let aircraftModel: String?
     let aircraftImageUrl: String?
     let aircraftAge: String?
+    let aircraftTypeName: String?
+    let aircraftModelCode: String?
+    let aircraftSeatCount: Int?
+    let aircraftEngineCount: Int?
+    let aircraftEngineType: String?
+    let aircraftIsActive: Bool?
+    let aircraftIsFreighter: Bool?
+    let aircraftDataVerified: Bool?
+    let aircraftManufacturedYear: Int?
+    let aircraftRegistrationDate: String?
     let tailNumber: String?
     let distanceKm: Double?
     let distanceNm: Double?

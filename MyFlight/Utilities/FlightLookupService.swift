@@ -44,6 +44,16 @@ struct FlightLookupResult {
     let aircraftImageUrl: String?
     let aircraftAge: String?
     let tailNumber: String?
+    let aircraftTypeName: String?
+    let aircraftModelCode: String?
+    let aircraftSeatCount: Int?
+    let aircraftEngineCount: Int?
+    let aircraftEngineType: String?
+    let aircraftIsActive: Bool?
+    let aircraftIsFreighter: Bool?
+    let aircraftDataVerified: Bool?
+    let aircraftManufacturedYear: Int?
+    let aircraftRegistrationDate: String?
     let distanceKm: Double?
     let distanceNm: Double?
     let distanceMiles: Double?
@@ -56,6 +66,7 @@ enum FlightLookupError: LocalizedError {
     case rateLimitExceeded
     case noFlightFound
     case invalidResponse
+    case networkTimeout
 
     var errorDescription: String? {
         switch self {
@@ -67,8 +78,24 @@ enum FlightLookupError: LocalizedError {
             return "No flight data found for the provided flight number and date."
         case .invalidResponse:
             return "Received invalid data from flight provider."
+        case .networkTimeout:
+            return "Network request timed out. Please check your connection and try again."
         }
     }
+}
+
+struct AircraftExtraInfo {
+    let age: String?
+    let typeName: String?
+    let modelCode: String?
+    let seatCount: Int?
+    let engineCount: Int?
+    let engineType: String?
+    let isActive: Bool?
+    let isFreighter: Bool?
+    let isVerified: Bool?
+    let manufacturedYear: Int?
+    let registrationDate: String?
 }
 
 enum FlightLookupService {
@@ -87,7 +114,7 @@ enum FlightLookupService {
         let selectedDateKey = DateFormatter.apiDateLocal.string(from: date)
         let dateString = selectedDateKey
 
-        guard let url = URL(string: "https://aerodatabox.p.rapidapi.com/flights/number/\(normalizedNumber)/\(dateString)") else {
+        guard let url = URL(string: "https://aerodatabox.p.rapidapi.com/flights/number/\(normalizedNumber)/\(dateString)?withAircraftImage=true") else {
             throw FlightLookupError.invalidResponse
         }
 
@@ -133,8 +160,11 @@ enum FlightLookupService {
         let predictedArr = parseAeroDate(selected.arrival?.predictedTime?.utc)
         let runwayArr = parseAeroDate(selected.arrival?.runwayTime?.utc)
         let actualArr = parseAeroDate(selected.arrival?.actualTime?.utc)
-        async let aircraftImageUrl = fetchAircraftImageURL(apiKeys: rapidAPIKeys, registration: selected.aircraft?.reg)
-        async let aircraftAge = fetchAircraftAge(registration: selected.aircraft?.reg)
+        let aircraftImageUrl = selected.aircraft?.image?.url
+        async let aircraftExtraInfo = fetchAircraftExtraInfoIfAvailable(
+            apiKeys: rapidAPIKeys,
+            registration: selected.aircraft?.reg
+        )
 
         // Determine status based on API status + departure data.
         let status: FlightStatus
@@ -212,9 +242,19 @@ enum FlightLookupService {
             arrivalRunway: selected.arrival?.runway,
             baggageClaim: selected.arrival?.baggageBelt,
             aircraftModel: selected.aircraft?.model,
-            aircraftImageUrl: await aircraftImageUrl,
-            aircraftAge: await aircraftAge,
+            aircraftImageUrl: aircraftImageUrl,
+            aircraftAge: await aircraftExtraInfo?.age,
             tailNumber: selected.aircraft?.reg,
+            aircraftTypeName: await aircraftExtraInfo?.typeName,
+            aircraftModelCode: await aircraftExtraInfo?.modelCode,
+            aircraftSeatCount: await aircraftExtraInfo?.seatCount,
+            aircraftEngineCount: await aircraftExtraInfo?.engineCount,
+            aircraftEngineType: await aircraftExtraInfo?.engineType,
+            aircraftIsActive: await aircraftExtraInfo?.isActive,
+            aircraftIsFreighter: await aircraftExtraInfo?.isFreighter,
+            aircraftDataVerified: await aircraftExtraInfo?.isVerified,
+            aircraftManufacturedYear: await aircraftExtraInfo?.manufacturedYear,
+            aircraftRegistrationDate: await aircraftExtraInfo?.registrationDate,
             distanceKm: selected.greatCircleDistance?.km,
             distanceNm: selected.greatCircleDistance?.nm,
             distanceMiles: selected.greatCircleDistance?.mile,
@@ -248,135 +288,244 @@ enum FlightLookupService {
         return []
     }
 
+    private static let timeoutSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15.0 // 15 seconds total request timeout
+        config.timeoutIntervalForResource = 20.0 // 20 seconds total resource timeout
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
+    
     private static func performAeroDataBoxRequest(url: URL, apiKeys: [String]) async throws -> (Data, HTTPURLResponse, String) {
         var lastRateLimited = false
+        var lastError: Error?
 
         for (index, apiKey) in apiKeys.enumerated() {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.setValue(apiKey, forHTTPHeaderField: "X-RapidAPI-Key")
             request.setValue("aerodatabox.p.rapidapi.com", forHTTPHeaderField: "X-RapidAPI-Host")
+            request.timeoutInterval = 15.0
 
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw FlightLookupError.invalidResponse
-            }
-
-            if httpResponse.statusCode == 429 {
-                lastRateLimited = true
-                let hasNextKey = index < apiKeys.count - 1
-                if hasNextKey {
-                    continue
+            do {
+                let (data, response) = try await timeoutSession.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw FlightLookupError.invalidResponse
                 }
-                break
-            }
 
-            guard 200..<300 ~= httpResponse.statusCode else {
-                throw FlightLookupError.invalidResponse
-            }
+                if httpResponse.statusCode == 429 {
+                    #if DEBUG
+                    print("FlightLookupService: 429 from \(url.absoluteString), rotating key index \(index)")
+                    #endif
+                    lastRateLimited = true
+                    let hasNextKey = index < apiKeys.count - 1
+                    if hasNextKey {
+                        continue
+                    }
+                    break
+                }
 
-            return (data, httpResponse, apiKey)
+                guard 200..<300 ~= httpResponse.statusCode else {
+                    #if DEBUG
+                    print("FlightLookupService: non-2xx \(httpResponse.statusCode) from \(url.absoluteString)")
+                    #endif
+                    throw FlightLookupError.invalidResponse
+                }
+
+                return (data, httpResponse, apiKey)
+            } catch let error as URLError where error.code == .timedOut {
+                lastError = FlightLookupError.networkTimeout
+                #if DEBUG
+                print("FlightLookupService: timeout on key index \(index), trying next key if available")
+                #endif
+                let hasNextKey = index < apiKeys.count - 1
+                if !hasNextKey { break }
+                continue
+            } catch {
+                lastError = error
+                let hasNextKey = index < apiKeys.count - 1
+                if !hasNextKey { break }
+            }
         }
 
+        if let timeoutError = lastError as? FlightLookupError, case .networkTimeout = timeoutError {
+            throw FlightLookupError.networkTimeout
+        }
         if lastRateLimited {
             throw FlightLookupError.rateLimitExceeded
         }
-        throw FlightLookupError.invalidResponse
+        throw lastError ?? FlightLookupError.invalidResponse
     }
 
     private static func fetchAircraftImageURL(apiKeys: [String], registration: String?) async -> String? {
+        #if DEBUG
+        print("FlightLookupService.fetchAircraftImageURL: tail=\(registration ?? "nil")")
+        #endif
         guard let registration,
               !registration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let encodedReg = registration.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let url = URL(string: "https://aerodatabox.p.rapidapi.com/aircrafts/reg/\(encodedReg)/image/image") else {
+            #if DEBUG
+            print("FlightLookupService.fetchAircraftImageURL: skipped (missing/invalid registration)")
+            #endif
             return nil
         }
 
         do {
-            let (data, httpResponse, _) = try await performAeroDataBoxRequest(url: url, apiKeys: apiKeys)
+            let (data, httpResponse, usedKey) = try await performAeroDataBoxRequest(url: url, apiKeys: apiKeys)
+            #if DEBUG
+            print("FlightLookupService.fetchAircraftImageURL: status=\(httpResponse.statusCode), contentType=\(httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "nil"), bytes=\(data.count), keySuffix=\(String(usedKey.suffix(4)))")
+            #endif
 
             if let mimeType = httpResponse.value(forHTTPHeaderField: "Content-Type"),
                mimeType.lowercased().contains("image") {
+                #if DEBUG
+                print("FlightLookupService.fetchAircraftImageURL: direct image response")
+                #endif
                 return url.absoluteString
             }
 
             let object = try JSONSerialization.jsonObject(with: data)
-            return extractURLString(from: object)
+            let extracted = extractURLString(from: object)
+            #if DEBUG
+            if extracted == nil {
+                let bodyPreview = String(data: data.prefix(300), encoding: .utf8) ?? "<non-utf8 body>"
+                print("FlightLookupService.fetchAircraftImageURL: no URL extracted; bodyPreview=\(bodyPreview)")
+            } else {
+                print("FlightLookupService.fetchAircraftImageURL: extractedURL=\(extracted!)")
+            }
+            #endif
+            return extracted
         } catch {
+            #if DEBUG
+            print("FlightLookupService.fetchAircraftImageURL: error=\(error.localizedDescription)")
+            #endif
             return nil
         }
     }
 
-    private static func fetchAircraftAge(registration: String?) async -> String? {
-        guard let registration,
-              !registration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let airLabsKey = Bundle.main.object(forInfoDictionaryKey: "AIRLABS_API_KEY") as? String,
-              !airLabsKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let encodedReg = registration.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://airlabs.co/api/v9/fleets?reg=\(encodedReg)&api_key=\(airLabsKey)") else {
-            return nil
+    private struct AeroDataBoxAircraftLookup: Codable {
+        let ageYears: Double?
+        let deliveryDate: String?
+        let rolloutDate: String?
+        let firstFlightDate: String?
+        let registrationDate: String?
+        let typeName: String?
+        let modelCode: String?
+        let numSeats: Int?
+        let numEngines: Int?
+        let engineType: String?
+        let active: Bool?
+        let isFreighter: Bool?
+        let verified: Bool?
+    }
+
+    static func lookupAircraftExtraInfo(registration: String) async throws -> AircraftExtraInfo {
+        let rapidAPIKeys = rapidAPIKeysFromConfig()
+        guard !rapidAPIKeys.isEmpty else {
+            throw FlightLookupError.missingAPIKey
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        let normalizedRegistration = registration.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedRegistration.isEmpty,
+              let encodedReg = normalizedRegistration.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "https://aerodatabox.p.rapidapi.com/aircrafts/reg/\(encodedReg)") else {
+            throw FlightLookupError.invalidResponse
+        }
+
+        let (data, _, _) = try await performAeroDataBoxRequest(url: url, apiKeys: rapidAPIKeys)
+        let details = try JSONDecoder().decode(AeroDataBoxAircraftLookup.self, from: data)
+
+        return AircraftExtraInfo(
+            age: formattedAircraftAge(ageYears: details.ageYears, deliveryDateString: details.deliveryDate),
+            typeName: details.typeName,
+            modelCode: details.modelCode,
+            seatCount: details.numSeats,
+            engineCount: details.numEngines,
+            engineType: details.engineType,
+            isActive: details.active,
+            isFreighter: details.isFreighter,
+            isVerified: details.verified,
+            manufacturedYear: extractManufacturedYear(rolloutDate: details.rolloutDate, firstFlightDate: details.firstFlightDate, deliveryDate: details.deliveryDate),
+            registrationDate: details.registrationDate
+        )
+    }
+
+    private static func fetchAircraftExtraInfoIfAvailable(
+        apiKeys: [String],
+        registration: String?
+    ) async -> AircraftExtraInfo? {
+        guard let registration = registration?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !registration.isEmpty else {
+            return nil
+        }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-                return nil
-            }
-
-            let object = try JSONSerialization.jsonObject(with: data)
-            guard let root = object as? [String: Any],
-                  let response = root["response"] as? [Any],
-                  let first = response.first else {
-                return nil
-            }
-
-            return extractAircraftAge(from: first)
+            return try await lookupAircraftExtraInfo(registration: registration)
         } catch {
+            #if DEBUG
+            print("FlightLookupService.fetchAircraftExtraInfoIfAvailable: error=\(error.localizedDescription)")
+            #endif
             return nil
         }
     }
 
-    private static func extractAircraftAge(from object: Any) -> String? {
-        guard let dict = object as? [String: Any] else { return nil }
-
-        let ageKeys = ["age", "aircraft_age", "plane_age", "ac_age"]
-        for key in ageKeys {
-            if let ageInt = dict[key] as? Int, ageInt > 0 {
-                return "\(ageInt) years"
-            }
-            if let ageDouble = dict[key] as? Double, ageDouble > 0 {
-                return "\(Int(ageDouble.rounded())) years"
-            }
-            if let ageString = dict[key] as? String,
-               let ageInt = Int(ageString.trimmingCharacters(in: .whitespacesAndNewlines)), ageInt > 0 {
-                return "\(ageInt) years"
-            }
+    private static func formattedAircraftAge(ageYears: Double?, deliveryDateString: String?) -> String? {
+        if let ageYears, ageYears >= 0 {
+            let rounded = (ageYears * 10).rounded() / 10
+            return String(format: "%.1f years", rounded)
         }
 
-        let builtKeys = ["built", "built_date", "built_year", "first_flight_date"]
-        for key in builtKeys {
-            if let builtYear = normalizedYear(from: dict[key]) {
-                let currentYear = Calendar.current.component(.year, from: Date())
-                if builtYear <= currentYear {
-                    return "\(max(currentYear - builtYear, 0)) years"
-                }
-            }
+        if let deliveryDateString,
+           let deliveryDate = parseDeliveryDate(deliveryDateString) {
+            let now = Date()
+            let seconds = max(0, now.timeIntervalSince(deliveryDate))
+            let years = seconds / (365.25 * 24 * 60 * 60)
+            let rounded = (years * 10).rounded() / 10
+            return String(format: "%.1f years", rounded)
         }
 
         return nil
     }
 
-    private static func normalizedYear(from raw: Any?) -> Int? {
-        if let year = raw as? Int, year > 1900 { return year }
-        if let string = raw as? String {
-            let digits = string.prefix(4)
-            if let year = Int(digits), year > 1900 {
-                return year
+    private static func extractManufacturedYear(rolloutDate: String?, firstFlightDate: String?, deliveryDate: String?) -> Int? {
+        if let year = yearPrefix(from: rolloutDate) { return year }
+        if let year = yearPrefix(from: firstFlightDate) { return year }
+        if let year = yearPrefix(from: deliveryDate) { return year }
+        return nil
+    }
+
+    private static func yearPrefix(from raw: String?) -> Int? {
+        guard let raw else { return nil }
+        let digits = raw.prefix(4)
+        guard let year = Int(digits), year > 1900 else { return nil }
+        return year
+    }
+
+    private static func parseDeliveryDate(_ string: String) -> Date? {
+        let formats = ["yyyy-MM-dd", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"]
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(abbreviation: "UTC")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        for format in formats {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: string) {
+                return date
             }
         }
+
+        if #available(iOS 13.0, macOS 10.15, *) {
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = iso.date(from: string) {
+                return date
+            }
+
+            iso.formatOptions = [.withInternetDateTime]
+            return iso.date(from: string)
+        }
+
         return nil
     }
 
@@ -443,6 +592,17 @@ private struct AeroAircraft: Codable {
     let reg: String?
     let model: String?
     let modeS: String?
+    let image: AeroAircraftImage?
+}
+
+private struct AeroAircraftImage: Codable {
+    let url: String?
+    let webUrl: String?
+    let author: String?
+    let title: String?
+    let description: String?
+    let license: String?
+    let htmlAttributions: [String]?
 }
 
 private struct AeroDistance: Codable {

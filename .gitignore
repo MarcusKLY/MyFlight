@@ -1,2 +1,12 @@
 # Local secrets (do not commit)
 Config/Secrets.xcconfig
+
+# Swift build artifacts
+.build/
+
+# Xcode
+DerivedData/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+Build/
+build/

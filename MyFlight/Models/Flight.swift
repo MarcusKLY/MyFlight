@@ -50,6 +50,16 @@ final class Flight {
     var aircraftModel: String?
     var aircraftImageUrl: String?
     var aircraftAge: String?
+    var aircraftTypeName: String?
+    var aircraftModelCode: String?
+    var aircraftSeatCount: Int?
+    var aircraftEngineCount: Int?
+    var aircraftEngineType: String?
+    var aircraftIsActive: Bool?
+    var aircraftIsFreighter: Bool?
+    var aircraftDataVerified: Bool?
+    var aircraftManufacturedYear: Int?
+    var aircraftRegistrationDate: String?
     var tailNumber: String?
     var distanceKm: Double?
     var distanceNm: Double?
@@ -85,12 +95,22 @@ final class Flight {
         aircraftModel: String? = nil,
         aircraftImageUrl: String? = nil,
         aircraftAge: String? = nil,
+        aircraftTypeName: String? = nil,
+        aircraftModelCode: String? = nil,
+        aircraftSeatCount: Int? = nil,
+        aircraftEngineCount: Int? = nil,
+        aircraftEngineType: String? = nil,
+        aircraftIsActive: Bool? = nil,
+        aircraftIsFreighter: Bool? = nil,
+        aircraftDataVerified: Bool? = nil,
+        aircraftManufacturedYear: Int? = nil,
         tailNumber: String? = nil,
         distanceKm: Double? = nil,
         distanceNm: Double? = nil,
         distanceMiles: Double? = nil,
         callSign: String? = nil,
-        flightStatus: FlightStatus = .onTime
+        flightStatus: FlightStatus = .onTime,
+        aircraftRegistrationDate: String? = nil
     ) {
         self.id = UUID()
         self.flightNumber = flightNumber
@@ -120,12 +140,22 @@ final class Flight {
         self.aircraftModel = aircraftModel
         self.aircraftImageUrl = aircraftImageUrl
         self.aircraftAge = aircraftAge
+        self.aircraftTypeName = aircraftTypeName
+        self.aircraftModelCode = aircraftModelCode
+        self.aircraftSeatCount = aircraftSeatCount
+        self.aircraftEngineCount = aircraftEngineCount
+        self.aircraftEngineType = aircraftEngineType
+        self.aircraftIsActive = aircraftIsActive
+        self.aircraftIsFreighter = aircraftIsFreighter
+        self.aircraftDataVerified = aircraftDataVerified
+        self.aircraftManufacturedYear = aircraftManufacturedYear
         self.tailNumber = tailNumber
         self.distanceKm = distanceKm
         self.distanceNm = distanceNm
         self.distanceMiles = distanceMiles
         self.callSign = callSign
         self.statusRawValue = flightStatus.rawValue
+        self.aircraftRegistrationDate = aircraftRegistrationDate
     }
 
     var flightStatus: FlightStatus {

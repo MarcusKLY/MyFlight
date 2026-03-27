@@ -122,6 +122,8 @@ struct FlightListView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
     }
 }
 
@@ -291,6 +293,10 @@ struct FlightListItemView: View {
                     Text(aircraft)
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 100, alignment: .trailing)
                 }
             }
         }

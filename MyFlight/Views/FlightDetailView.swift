@@ -6,52 +6,93 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct FlightDetailView: View {
     let flight: Flight
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @State private var isRefreshing = false
+    @State private var isFlipped = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    routeHeader
-                        .padding(.bottom, 20)
-
-                    Divider()
-
-                    progressSection
-                        .padding(.vertical, 16)
-
-                    Divider()
-
-                    timelineSection
-                        .padding(.vertical, 16)
-
-                    Divider()
-
-                    if hasGateOrTerminalInfo {
-                        gatesSection
-                            .padding(.vertical, 16)
-                        Divider()
+            VStack(spacing: 0) {
+                // Centered title with balanced side controls
+                HStack(spacing: 12) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 36, height: 36)
                     }
+                    .foregroundStyle(.blue)
 
-                    if hasAircraftInfo {
-                        aircraftSection
-                            .padding(.vertical, 16)
-                        Divider()
+                    Text(flight.flightNumber)
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    Button {
+                        Task { await refreshFlight() }
+                    } label: {
+                        if isRefreshing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 36, height: 36)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 18, weight: .semibold))
+                                .frame(width: 36, height: 36)
+                        }
                     }
+                    .foregroundStyle(.blue)
+                    .disabled(isRefreshing)
+                    .accessibilityLabel("Refresh flight status")
                 }
                 .padding(.horizontal, 20)
-            }
-            .navigationTitle(flight.flightNumber)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                .padding(.top, 18)
+                .padding(.bottom, 16)
+                .background(Color(.systemGroupedBackground))
+
+                ScrollView {
+                    VStack(spacing: 0) {
+                        routeHeader
+                            .padding(.bottom, 20)
+
+                        Divider()
+
+                        progressSection
+                            .padding(.vertical, 16)
+
+                        Divider()
+
+                        timelineSection
+                            .padding(.vertical, 16)
+
+                        Divider()
+
+                        if hasGateOrTerminalInfo {
+                            gatesSection
+                                .padding(.vertical, 16)
+                            Divider()
+                        }
+
+                        if hasAircraftInfo {
+                            aircraftSection
+                                .padding(.vertical, 16)
+                            Divider()
+                        }
+                    }
+                    .padding(.horizontal, 20)
                 }
+                .background(Color(.systemGroupedBackground))
             }
+            .background(Color(.systemGroupedBackground))
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 
@@ -133,6 +174,8 @@ struct FlightDetailView: View {
         }
         .padding(.top, 20)
     }
+
+    // MARK: - Route Header
 
     private var flightDateFormatted: String {
         let formatter = DateFormatter()
@@ -242,7 +285,6 @@ struct FlightDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Divider()
-                    .frame(height: 142)
 
                 arrivalTimeline
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -271,6 +313,8 @@ struct FlightDetailView: View {
                     delayMinutes: event.delayMinutes
                 )
             }
+
+            Spacer(minLength: 0)
         }
     }
 
@@ -303,6 +347,8 @@ struct FlightDetailView: View {
                     )
                 }
             }
+
+            Spacer(minLength: 0)
         }
     }
 
@@ -315,10 +361,14 @@ struct FlightDetailView: View {
                 .font(.caption)
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             if let tz = timezone {
                 Text(abbreviatedTimezone(identifier: tz))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
         }
         .padding(.bottom, 6)
@@ -587,11 +637,10 @@ struct FlightDetailView: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(eventColor(style))
 
-                if shouldShowDeviceLocalTime(for: timezone) {
-                    Text(deviceLocalTime(date))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+                Text(deviceLocalTime(date))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .opacity(shouldShowDeviceLocalTime(for: timezone) ? 1 : 0)
             }
 
             Spacer()
@@ -603,7 +652,7 @@ struct FlightDetailView: View {
                     .foregroundStyle(delta > 0 ? .orange : .green)
             }
         }
-        .frame(minHeight: 52, alignment: .top)
+        .frame(minHeight: 26, alignment: .top)
     }
 
     private func deviceLocalTime(_ date: Date) -> String {
@@ -626,7 +675,7 @@ struct FlightDetailView: View {
             Spacer().frame(width: 11)
             Rectangle()
                 .fill(Color.secondary.opacity(0.25))
-                .frame(width: 2, height: 6)
+                .frame(width: 2, height: 10)
         }
     }
 
@@ -695,7 +744,25 @@ struct FlightDetailView: View {
     // MARK: - Aircraft Section
 
     private var hasAircraftInfo: Bool {
-        flight.aircraftModel != nil || flight.aircraftImageUrl != nil || flight.tailNumber != nil || flight.callSign != nil || flight.aircraftAge != nil
+        flight.aircraftModel != nil ||
+        flight.aircraftImageUrl != nil ||
+        flight.tailNumber != nil ||
+        flight.callSign != nil ||
+        flight.aircraftAge != nil ||
+        flight.aircraftTypeName != nil ||
+        flight.aircraftModelCode != nil ||
+        flight.aircraftSeatCount != nil ||
+        flight.aircraftEngineCount != nil ||
+        flight.aircraftEngineType != nil ||
+        flight.aircraftManufacturedYear != nil ||
+        flight.aircraftIsActive != nil ||
+        flight.aircraftIsFreighter != nil ||
+        flight.aircraftDataVerified != nil
+    }
+
+    private var hasTailNumber: Bool {
+        guard let tail = flight.tailNumber?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        return !tail.isEmpty
     }
 
     private var aircraftSection: some View {
@@ -708,48 +775,170 @@ struct FlightDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     infoRow(icon: "airplane.circle", label: "Type", value: flight.aircraftModel)
                     infoRow(icon: "tag", label: "Tail", value: flight.tailNumber)
+                    infoRow(icon: "airplane", label: "Series", value: flight.aircraftTypeName)
+                    infoRow(icon: "number", label: "Model Code", value: flight.aircraftModelCode)
+                    infoRow(icon: "calendar", label: "Built", value: flight.aircraftManufacturedYear.map(String.init))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 8) {
                     infoRow(icon: "hourglass", label: "Age", value: flight.aircraftAge)
                     infoRow(icon: "antenna.radiowaves.left.and.right", label: "Call Sign", value: flight.callSign)
+                    infoRow(icon: "person.3", label: "Seats", value: flight.aircraftSeatCount.map(String.init))
+                    infoRow(icon: "gearshape.2", label: "Engines", value: flight.aircraftEngineCount.map(String.init))
+                    infoRow(icon: "fanblades", label: "Engine Type", value: flight.aircraftEngineType)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: 8) {
+                aircraftStatusBadge
             }
         }
     }
 
+    @ViewBuilder
+    private var aircraftStatusBadge: some View {
+        if flight.aircraftIsActive != nil || flight.aircraftIsFreighter != nil || flight.aircraftDataVerified != nil {
+            // Build status string from all three flags
+            let statusParts: [String] = [
+                (flight.aircraftIsActive == true) ? "Active" : "Inactive",
+                (flight.aircraftIsFreighter == true) ? "Freighter" : "Passenger",
+                (flight.aircraftDataVerified == true) ? "Verified" : "Unverified"
+            ]
+            let statusText = statusParts.joined(separator: " · ")
+
+            Text(statusText)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.blue.opacity(0.12), in: Capsule())
+                .foregroundStyle(Color.blue)
+        }
+    }
+
+    @ViewBuilder
+    private func booleanPill(label: String, value: Bool?) -> some View {
+        if let value {
+            Text("\(label): \(value ? "Yes" : "No")")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background((value ? Color.green : Color.secondary).opacity(0.16), in: Capsule())
+                .foregroundStyle(value ? Color.green : Color.secondary)
+        }
+    }
+
     private var aircraftHeroImage: some View {
-        Group {
-            if let imageUrl = flight.aircraftImageUrl,
-               let url = URL(string: imageUrl) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .empty:
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(Color.secondary.opacity(0.12))
-                            ProgressView()
-                        }
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    case .failure:
-                        aircraftImagePlaceholder
-                    @unknown default:
-                        aircraftImagePlaceholder
-                    }
+        // Robust fuzzy matching: combine model, type, and code for best match
+        let silhouetteName = AircraftImageMapper.getImageName(
+            model: flight.aircraftModel,
+            typeName: flight.aircraftTypeName,
+            modelCode: flight.aircraftModelCode
+        )
+
+        return ZStack {
+            // Back face: Silhouette (white PNG on card background)
+            if isFlipped {
+                VStack {
+                    safeAircraftSilhouette(silhouetteName)
                 }
-            } else {
-                aircraftImagePlaceholder
+                .frame(maxWidth: .infinity, maxHeight: 190)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+
+            // Front face: Remote photo or fallback silhouette
+            if !isFlipped {
+                if let imageUrl = flight.aircraftImageUrl, let url = URL(string: imageUrl) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            // Loading state: show silhouette
+                            VStack {
+                                safeAircraftSilhouette(silhouetteName)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: 190)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        case .success(let image):
+                            // Success: show remote photo
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .frame(maxWidth: .infinity, maxHeight: 190)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                        case .failure:
+                            // Failed to load: show silhouette fallback
+                            VStack {
+                                safeAircraftSilhouette(silhouetteName)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: 190)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        @unknown default:
+                            aircraftImagePlaceholder
+                                .frame(maxWidth: .infinity, maxHeight: 190)
+                        }
+                    }
+                } else {
+                    // No URL: show silhouette only
+                    VStack {
+                        safeAircraftSilhouette(silhouetteName)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 190)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
             }
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 190)
-        .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .frame(maxWidth: .infinity, maxHeight: 190)
+        .background(Color.black.opacity(0.04))
+        .cornerRadius(14)
+        .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .rotation3DEffect(
+            .degrees(isFlipped ? 180 : 0),
+            axis: (x: 0, y: 1, z: 0),
+            anchor: .center,
+            perspective: 1
+        )
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.6)) {
+                isFlipped.toggle()
+            }
+        }
+    }
+
+    /// Bulletproof silhouette display: safely loads asset or falls back to SF Symbol
+    @ViewBuilder
+    private func safeAircraftSilhouette(_ assetName: String) -> some View {
+        let _ = print("[safeAircraftSilhouette] Loading: '\(assetName)'")
+
+        if assetName.isEmpty {
+            let _ = print("[safeAircraftSilhouette] Empty asset name - using SF Symbol")
+            Image(systemName: "airplane.circle.fill")
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 100, maxHeight: 100)
+                .foregroundStyle(Color.secondary.opacity(0.5))
+        } else if let uiImage = AircraftImageMapper.loadAircraftImage(assetName) {
+            let _ = print("[safeAircraftSilhouette] ✅ Loaded: '\(assetName)'")
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 320, maxHeight: 180)
+        } else {
+            let _ = print("[safeAircraftSilhouette] ❌ NOT found: '\(assetName)' - fallback to SF Symbol")
+            Image(systemName: "airplane.circle.fill")
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 100, maxHeight: 100)
+                .foregroundStyle(Color.secondary.opacity(0.5))
+        }
     }
 
     private var aircraftImagePlaceholder: some View {
@@ -848,6 +1037,84 @@ struct FlightDetailView: View {
 
     private func isSameMinute(_ a: Date, _ b: Date) -> Bool {
         Calendar.current.isDate(a, equalTo: b, toGranularity: .minute)
+    }
+
+    // MARK: - Refresh
+
+    @MainActor
+    private func refreshFlight() async {
+        isRefreshing = true
+        defer { isRefreshing = false }
+
+        guard let freshResult = try? await FlightLookupService.lookup(
+            flightNumber: flight.flightNumber,
+            date: flight.scheduledDeparture
+        ) else {
+            return
+        }
+
+        // Update dynamic flight status
+        flight.flightStatus = freshResult.status
+
+        // Departure times
+        flight.revisedDeparture = freshResult.revisedDeparture
+        flight.estimatedDeparture = freshResult.estimatedDeparture
+        flight.actualDeparture = freshResult.actualDeparture
+        flight.runwayDeparture = freshResult.runwayDeparture
+
+        // Arrival times
+        flight.revisedArrival = freshResult.revisedArrival
+        flight.estimatedArrival = freshResult.estimatedArrival
+        flight.predictedArrival = freshResult.predictedArrival
+        flight.runwayArrival = freshResult.runwayArrival
+        flight.actualArrival = freshResult.actualArrival
+
+        // Gates, terminals, runways - preserve existing if API returns nil
+        flight.departureGate = freshResult.departureGate ?? flight.departureGate
+        flight.departureTerminal = freshResult.departureTerminal ?? flight.departureTerminal
+        flight.departureRunway = freshResult.departureRunway ?? flight.departureRunway
+        flight.departureCheckInDesk = freshResult.departureCheckInDesk ?? flight.departureCheckInDesk
+        flight.arrivalGate = freshResult.arrivalGate ?? flight.arrivalGate
+        flight.arrivalTerminal = freshResult.arrivalTerminal ?? flight.arrivalTerminal
+        flight.arrivalRunway = freshResult.arrivalRunway ?? flight.arrivalRunway
+        flight.baggageClaim = freshResult.baggageClaim ?? flight.baggageClaim
+
+        // Smart merge: Only update aircraft data if we have new data AND cached is nil
+        if flight.aircraftAge == nil, let freshAge = freshResult.aircraftAge {
+            flight.aircraftAge = freshAge
+        }
+        if flight.aircraftTypeName == nil, let freshTypeName = freshResult.aircraftTypeName {
+            flight.aircraftTypeName = freshTypeName
+        }
+        if flight.aircraftModelCode == nil, let freshModelCode = freshResult.aircraftModelCode {
+            flight.aircraftModelCode = freshModelCode
+        }
+        if flight.aircraftSeatCount == nil, let freshSeatCount = freshResult.aircraftSeatCount {
+            flight.aircraftSeatCount = freshSeatCount
+        }
+        if flight.aircraftEngineCount == nil, let freshEngineCount = freshResult.aircraftEngineCount {
+            flight.aircraftEngineCount = freshEngineCount
+        }
+        if flight.aircraftEngineType == nil, let freshEngineType = freshResult.aircraftEngineType {
+            flight.aircraftEngineType = freshEngineType
+        }
+        if flight.aircraftIsActive == nil, let freshIsActive = freshResult.aircraftIsActive {
+            flight.aircraftIsActive = freshIsActive
+        }
+        if flight.aircraftIsFreighter == nil, let freshIsFreighter = freshResult.aircraftIsFreighter {
+            flight.aircraftIsFreighter = freshIsFreighter
+        }
+        if flight.aircraftDataVerified == nil, let freshDataVerified = freshResult.aircraftDataVerified {
+            flight.aircraftDataVerified = freshDataVerified
+        }
+        if flight.aircraftManufacturedYear == nil, let freshManufacturedYear = freshResult.aircraftManufacturedYear {
+            flight.aircraftManufacturedYear = freshManufacturedYear
+        }
+        if flight.aircraftRegistrationDate == nil, let freshRegistrationDate = freshResult.aircraftRegistrationDate {
+            flight.aircraftRegistrationDate = freshRegistrationDate
+        }
+
+        try? modelContext.save()
     }
 }
 

@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import CoreLocation
 import UIKit
+import UniformTypeIdentifiers
 
 struct LogbookView: View {
     @Environment(\.modelContext) private var modelContext
@@ -17,6 +18,16 @@ struct LogbookView: View {
 
     @State private var showClearDataAlert = false
     @State private var showClearSuccessAlert = false
+    @State private var showImportPicker = false
+    @State private var showImportModeDialog = false
+    @State private var showImportResultAlert = false
+    @State private var importResultMessage = ""
+    @State private var importMode: ImportMode = .replace
+
+    private enum ImportMode: String, CaseIterable {
+        case replace = "Replace Existing Data"
+        case merge = "Merge Into Existing Data"
+    }
 
     // Statistics
     private var totalFlights: Int { flights.count }
@@ -93,6 +104,18 @@ struct LogbookView: View {
                         }
 
                         Button {
+                            exportBackup()
+                        } label: {
+                            Label("Export Backup", systemImage: "square.and.arrow.up")
+                        }
+
+                        Button {
+                            showImportModeDialog = true
+                        } label: {
+                            Label("Import Backup", systemImage: "square.and.arrow.down")
+                        }
+
+                        Button {
                             exportDatabaseInfo()
                         } label: {
                             Label("Export Debug Info", systemImage: "doc.on.doc")
@@ -115,6 +138,30 @@ struct LogbookView: View {
                 Button("OK") { }
             } message: {
                 Text("All flight and airport data has been cleared successfully.")
+            }
+            .alert("Import Result", isPresented: $showImportResultAlert) {
+                Button("OK") { }
+            } message: {
+                Text(importResultMessage)
+            }
+            .confirmationDialog("Import Backup", isPresented: $showImportModeDialog, titleVisibility: .visible) {
+                Button("Replace Existing Data") {
+                    importMode = .replace
+                    showImportPicker = true
+                }
+                Button("Merge Into Existing Data") {
+                    importMode = .merge
+                    showImportPicker = true
+                }
+                Button("Cancel", role: .cancel) { }
+            }
+            .sheet(isPresented: $showImportPicker) {
+                DocumentPickerView(supportedTypes: ["public.json"]) { url in
+                    showImportPicker = false
+                    if let url {
+                        importBackup(from: url, merge: importMode == .merge)
+                    }
+                }
             }
         }
     }
@@ -156,6 +203,210 @@ struct LogbookView: View {
         """
         print(info)
         UIPasteboard.general.string = info
+    }
+
+    private func exportBackup() {
+        let backup = LogbookBackup(
+            airports: airports.map { AirportBackup(from: $0) },
+            flights: flights.map { FlightBackup(from: $0) }
+        )
+
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(backup)
+
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("MyFlight-Logbook-Backup-\(Date().timeIntervalSince1970).json")
+            try data.write(to: tempURL, options: .atomic)
+
+            let activity = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+            if let windowScene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+               let root = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                root.present(activity, animated: true, completion: nil)
+            }
+        } catch {
+            importResultMessage = "Failed to export backup: \(error.localizedDescription)"
+            showImportResultAlert = true
+        }
+    }
+
+    private func importBackup(from url: URL, merge: Bool = false) {
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let backup = try decoder.decode(LogbookBackup.self, from: data)
+
+            // Replace or merge
+            if !merge {
+                clearAllData()
+            }
+
+            // Keep airport map by iata for linking flights
+            var airportByIATA: [String: Airport] = [:]
+            for airportBackup in backup.airports {
+                if airportByIATA[airportBackup.iataCode] != nil { continue }
+                let airport = Airport(
+                    iataCode: airportBackup.iataCode,
+                    name: airportBackup.name,
+                    latitude: airportBackup.latitude,
+                    longitude: airportBackup.longitude,
+                    timezone: airportBackup.timezone
+                )
+                modelContext.insert(airport)
+                airportByIATA[airport.iataCode] = airport
+            }
+
+            // Insert flights
+            for flightBackup in backup.flights {
+                guard let origin = airportByIATA[flightBackup.originIATACode],
+                      let destination = airportByIATA[flightBackup.destinationIATACode] else {
+                    continue
+                }
+
+                let status = FlightStatus(rawValue: flightBackup.flightStatus) ?? .onTime
+                let flight = Flight(
+                    flightNumber: flightBackup.flightNumber,
+                    airline: flightBackup.airline,
+                    airlineIATA: flightBackup.airlineIATA,
+                    origin: origin,
+                    destination: destination,
+                    scheduledDeparture: flightBackup.scheduledDeparture,
+                    revisedDeparture: flightBackup.revisedDeparture,
+                    estimatedDeparture: flightBackup.estimatedDeparture,
+                    actualDeparture: flightBackup.actualDeparture,
+                    runwayDeparture: flightBackup.runwayDeparture,
+                    runwayArrival: flightBackup.runwayArrival,
+                    revisedArrival: flightBackup.revisedArrival,
+                    estimatedArrival: flightBackup.estimatedArrival,
+                    predictedArrival: flightBackup.predictedArrival,
+                    scheduledArrival: flightBackup.scheduledArrival,
+                    actualArrival: flightBackup.actualArrival,
+                    departureGate: flightBackup.departureGate,
+                    departureTerminal: flightBackup.departureTerminal,
+                    departureRunway: flightBackup.departureRunway,
+                    departureCheckInDesk: flightBackup.departureCheckInDesk,
+                    arrivalGate: flightBackup.arrivalGate,
+                    arrivalTerminal: flightBackup.arrivalTerminal,
+                    arrivalRunway: flightBackup.arrivalRunway,
+                    baggageClaim: flightBackup.baggageClaim,
+                    aircraftModel: flightBackup.aircraftModel,
+                    aircraftImageUrl: flightBackup.aircraftImageUrl,
+                    aircraftAge: flightBackup.aircraftAge,
+                    tailNumber: flightBackup.tailNumber,
+                    distanceKm: flightBackup.distanceKm,
+                    distanceNm: flightBackup.distanceNm,
+                    distanceMiles: flightBackup.distanceMiles,
+                    callSign: flightBackup.callSign,
+                    flightStatus: status
+                )
+                modelContext.insert(flight)
+            }
+
+            try modelContext.save()
+
+            importResultMessage = "Backup imported successfully."
+            showImportResultAlert = true
+        } catch {
+            importResultMessage = "Failed to import backup: \(error.localizedDescription)"
+            showImportResultAlert = true
+        }
+    }
+
+    private struct LogbookBackup: Codable {
+        let airports: [AirportBackup]
+        let flights: [FlightBackup]
+    }
+
+    private struct AirportBackup: Codable {
+        let iataCode: String
+        let name: String
+        let latitude: Double
+        let longitude: Double
+        let timezone: String?
+
+        init(from airport: Airport) {
+            self.iataCode = airport.iataCode
+            self.name = airport.name
+            self.latitude = airport.latitude
+            self.longitude = airport.longitude
+            self.timezone = airport.timezone
+        }
+    }
+
+    private struct FlightBackup: Codable {
+        let flightNumber: String
+        let airline: String
+        let airlineIATA: String?
+        let originIATACode: String
+        let destinationIATACode: String
+        let scheduledDeparture: Date
+        let revisedDeparture: Date?
+        let estimatedDeparture: Date?
+        let actualDeparture: Date?
+        let runwayDeparture: Date?
+        let runwayArrival: Date?
+        let revisedArrival: Date?
+        let estimatedArrival: Date?
+        let predictedArrival: Date?
+        let scheduledArrival: Date?
+        let actualArrival: Date?
+        let departureGate: String?
+        let departureTerminal: String?
+        let departureRunway: String?
+        let departureCheckInDesk: String?
+        let arrivalGate: String?
+        let arrivalTerminal: String?
+        let arrivalRunway: String?
+        let baggageClaim: String?
+        let aircraftModel: String?
+        let aircraftImageUrl: String?
+        let aircraftAge: String?
+        let tailNumber: String?
+        let distanceKm: Double?
+        let distanceNm: Double?
+        let distanceMiles: Double?
+        let callSign: String?
+        let flightStatus: String
+
+        init(from flight: Flight) {
+            self.flightNumber = flight.flightNumber
+            self.airline = flight.airline
+            self.airlineIATA = flight.airlineIATA
+            self.originIATACode = flight.origin.iataCode
+            self.destinationIATACode = flight.destination.iataCode
+            self.scheduledDeparture = flight.scheduledDeparture
+            self.revisedDeparture = flight.revisedDeparture
+            self.estimatedDeparture = flight.estimatedDeparture
+            self.actualDeparture = flight.actualDeparture
+            self.runwayDeparture = flight.runwayDeparture
+            self.runwayArrival = flight.runwayArrival
+            self.revisedArrival = flight.revisedArrival
+            self.estimatedArrival = flight.estimatedArrival
+            self.predictedArrival = flight.predictedArrival
+            self.scheduledArrival = flight.scheduledArrival
+            self.actualArrival = flight.actualArrival
+            self.departureGate = flight.departureGate
+            self.departureTerminal = flight.departureTerminal
+            self.departureRunway = flight.departureRunway
+            self.departureCheckInDesk = flight.departureCheckInDesk
+            self.arrivalGate = flight.arrivalGate
+            self.arrivalTerminal = flight.arrivalTerminal
+            self.arrivalRunway = flight.arrivalRunway
+            self.baggageClaim = flight.baggageClaim
+            self.aircraftModel = flight.aircraftModel
+            self.aircraftImageUrl = flight.aircraftImageUrl
+            self.aircraftAge = flight.aircraftAge
+            self.tailNumber = flight.tailNumber
+            self.distanceKm = flight.distanceKm
+            self.distanceNm = flight.distanceNm
+            self.distanceMiles = flight.distanceMiles
+            self.callSign = flight.callSign
+            self.flightStatus = flight.flightStatus.rawValue
+        }
     }
 
     // MARK: - Hero Card
@@ -601,6 +852,42 @@ struct UpcomingFlightRow: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM"
         return formatter.string(from: flight.scheduledDeparture).uppercased()
+    }
+}
+
+private struct DocumentPickerView: UIViewControllerRepresentable {
+    var supportedTypes: [String]
+    var onPick: (URL?) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let types = supportedTypes.compactMap { UTType($0) }
+        let controller = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
+        controller.delegate = context.coordinator
+        controller.allowsMultipleSelection = false
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick)
+    }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL?) -> Void
+
+        init(onPick: @escaping (URL?) -> Void) {
+            self.onPick = onPick
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onPick(urls.first)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onPick(nil)
+        }
     }
 }
 

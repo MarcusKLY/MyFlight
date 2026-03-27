@@ -34,29 +34,43 @@ struct MapViewContainer: View {
                         steps: 150
                     )
 
-                    let routeIntensity = routeIntensity(for: flight)
                     let isSelected = selectedFlight?.id == flight.id
-                    let selectionBoost = isSelected ? 1.25 : 1.0
 
-                    // Subtle glow pass behind the main route.
-                    MapPolyline(coordinates: pathCoordinates)
-                        .stroke(
-                            Color.cyan.opacity(min(0.5, 0.15 * routeIntensity * selectionBoost)),
-                            lineWidth: isSelected ? 10 : 7
-                        )
-
+                    // Background polyline: all flights as muted grey/white
                     MapPolyline(coordinates: pathCoordinates)
                         .stroke(
                             LinearGradient(
                                 gradient: Gradient(colors: [
-                                    Color.blue.opacity(min(1.0, 0.35 + 0.45 * routeIntensity * selectionBoost)),
-                                    Color.cyan.opacity(min(1.0, 0.25 + 0.45 * routeIntensity * selectionBoost))
+                                    Color.white.opacity(isSelected ? 0.0 : 0.8),
+                                    Color.gray.opacity(isSelected ? 0.0 : 0.45)
                                 ]),
                                 startPoint: .leading,
                                 endPoint: .trailing
                             ),
-                            lineWidth: isSelected ? 4 : 3
+                            lineWidth: isSelected ? 0 : 2
                         )
+
+                    // Highlighted route for selected flight only.
+                    if isSelected {
+                        MapPolyline(coordinates: pathCoordinates)
+                            .stroke(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.blue.opacity(0.9),
+                                        Color.cyan.opacity(0.8)
+                                    ]),
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ),
+                                lineWidth: 4
+                            )
+                    } else {
+                        MapPolyline(coordinates: pathCoordinates)
+                            .stroke(
+                                Color.white.opacity(0.22),
+                                lineWidth: 1.5
+                            )
+                    }
                     
                     // Origin airport marker
                     Annotation("", coordinate: flight.origin.coordinate) {
@@ -112,24 +126,34 @@ struct AirportMarker: View {
     let isSelected: Bool
     
     var body: some View {
-        VStack(spacing: 4) {
-            ZStack {
+        Group {
+            if isSelected {
+                VStack(spacing: 4) {
+                    ZStack {
+                        Circle()
+                            .fill(isOrigin ? Color.green : Color.red)
+                            .frame(width: 32, height: 32)
+                            .shadow(radius: 6)
+
+                        Text(iataCode)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+
+                    Text(iataCode)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.white.opacity(0.9))
+                        .cornerRadius(4)
+                }
+            } else {
                 Circle()
-                    .fill(isOrigin ? Color.green : Color.red)
-                    .frame(width: 32, height: 32)
-                    .shadow(radius: isSelected ? 8 : 4)
-                
-                Text(iataCode)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.white)
+                    .fill(Color.gray.opacity(0.7))
+                    .frame(width: 8, height: 8)
+                    .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
             }
-            
-            Text(iataCode)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(.primary)
-                .background(Color.white.opacity(0.8))
-                .cornerRadius(3)
-                .padding(.horizontal, 4)
         }
     }
 }
