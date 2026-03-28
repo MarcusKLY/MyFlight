@@ -774,6 +774,9 @@ struct FlightDetailView: View {
             sectionLabel("Aircraft")
 
             aircraftHeroImage
+                .frame(maxWidth: .infinity)
+                .frame(height: 190)
+                .clipped()  // Ensures image never overflows
 
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -870,12 +873,14 @@ struct FlightDetailView: View {
                                     .padding(.horizontal, 8)
                             }
                         case .success(let image):
-                            // Success: show remote photo - crop to fill
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .clipped()
+                            // Success: show remote photo - crop to fill with proper constraints
+                            GeometryReader { geometry in
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .clipped()
+                            }
                         case .failure:
                             // Failed to load: show silhouette fallback
                             ZStack {

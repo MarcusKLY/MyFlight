@@ -20,6 +20,7 @@ struct TransitListItemView: View {
             HStack {
                 HStack(spacing: 8) {
                     TransitTypeIcon(type: transit.transitType, size: 28)
+                        .frame(height: 28)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(transit.operatorName)
@@ -33,6 +34,7 @@ struct TransitListItemView: View {
                         }
                     }
                 }
+                .frame(height: 32, alignment: .center)
 
                 Spacer()
 
@@ -126,7 +128,7 @@ struct TransitListItemView: View {
             }
         }
         .padding(.vertical, 12)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 4)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(isSelected ? Color.orange.opacity(0.08) : Color.clear)

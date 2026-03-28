@@ -25,6 +25,7 @@ struct MapViewContainer: View {
     @Binding var selectedTransit: TransitSegment?
     let mapStyleMode: FlightMapStyleMode
     let filter: ListFilter
+    @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
         ZStack {
@@ -71,7 +72,9 @@ struct MapViewContainer: View {
                     } else {
                         MapPolyline(coordinates: pathCoordinates)
                             .stroke(
-                                Color.white.opacity(0.22),
+                                colorScheme == .light ? 
+                                    Color.gray.opacity(0.5) : 
+                                    Color.white.opacity(0.22),
                                 lineWidth: 1.5
                             )
                     }
@@ -81,17 +84,25 @@ struct MapViewContainer: View {
                         AirportMarker(
                             iataCode: flight.origin.iataCode,
                             isOrigin: true,
-                            isSelected: isSelected
+                            isSelected: isSelected,
+                            airport: flight.origin,
+                            selectedFlightOriginCode: selectedFlight?.origin.iataCode,
+                            selectedFlightDestCode: selectedFlight?.destination.iataCode
                         )
+                        .zIndex(isSelected ? 100 : 0)
                     }
-                    
+
                     // Destination airport marker
                     Annotation("", coordinate: flight.destination.coordinate) {
                         AirportMarker(
                             iataCode: flight.destination.iataCode,
                             isOrigin: false,
-                            isSelected: isSelected
+                            isSelected: isSelected,
+                            airport: flight.destination,
+                            selectedFlightOriginCode: selectedFlight?.origin.iataCode,
+                            selectedFlightDestCode: selectedFlight?.destination.iataCode
                         )
+                        .zIndex(isSelected ? 100 : 0)
                     }
                 }
 
@@ -155,11 +166,19 @@ struct MapViewContainer: View {
     }
 
     private var visibleFlights: [Flight] {
-        filter == .transit ? [] : flights
+        // Always include selectedFlight even if filter is .transit, otherwise keep current filter
+        if filter == .transit, let selected = selectedFlight {
+            return [selected]
+        }
+        return filter == .transit ? [] : flights
     }
 
     private var visibleTransit: [TransitSegment] {
-        filter == .flights ? [] : transitSegments
+        // Always include selectedTransit even if filter is .flights, otherwise keep current filter
+        if filter == .flights, let selected = selectedTransit {
+            return [selected]
+        }
+        return filter == .flights ? [] : transitSegments
     }
 
     private var mapStyle: MapStyle {
@@ -209,7 +228,27 @@ struct AirportMarker: View {
     let iataCode: String
     let isOrigin: Bool
     let isSelected: Bool
-    
+    let airport: Airport?  // For accessing visit count
+    let selectedFlightOriginCode: String?  // To check if this airport is part of selected flight
+    let selectedFlightDestCode: String?
+
+    var dotSize: Double {
+        // Scale dot size based on visit count: 6-12pt (reduced from 8-16pt)
+        if let airport = airport {
+            let size = min(12, 6 + Double(airport.visitCount) * 1.0)
+            return size
+        }
+        return 6
+    }
+
+    private var isPartOfSelectedFlight: Bool {
+        // Check if this airport is either origin or destination of the selected flight
+        if let selectedOrigin = selectedFlightOriginCode, let selectedDest = selectedFlightDestCode {
+            return airport?.iataCode == selectedOrigin || airport?.iataCode == selectedDest
+        }
+        return false
+    }
+
     var body: some View {
         Group {
             if isSelected {
@@ -225,10 +264,16 @@ struct AirportMarker: View {
                             .foregroundColor(.white)
                     }
                 }
-            } else {
+            } else if !isPartOfSelectedFlight {
+                // Only show grey dot if this airport is NOT part of the selected flight
                 Circle()
                     .fill(Color.gray.opacity(0.7))
-                    .frame(width: 8, height: 8)
+                    .frame(width: dotSize, height: dotSize)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white, lineWidth: 1.5)
+                            .frame(width: dotSize, height: dotSize)
+                    )
                     .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
             }
         }

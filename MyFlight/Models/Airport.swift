@@ -16,6 +16,7 @@ final class Airport {
     var latitude: Double
     var longitude: Double
     var timezone: String?
+    var visitCount: Int = 0  // Track number of flights to/from this airport
 
     init(iataCode: String, name: String, latitude: Double, longitude: Double, timezone: String? = nil) {
         self.iataCode = iataCode
@@ -23,6 +24,7 @@ final class Airport {
         self.latitude = latitude
         self.longitude = longitude
         self.timezone = timezone
+        self.visitCount = 0
     }
 
     var coordinate: CLLocationCoordinate2D {

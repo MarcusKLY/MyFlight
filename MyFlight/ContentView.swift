@@ -217,7 +217,7 @@ struct LiveMapTab: View {
                         }
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .animation(.easeInOut(duration: 0.22), value: activeSheet)
 
@@ -282,6 +282,20 @@ struct LiveMapTab: View {
 
             case .addFlight:
                 AddFlightSheet(airports: FlightSeedData.defaultAirports(from: airports)) { draft in
+                    // Check for duplicate flight (same flight number and departure date)
+                    let departureDate = Calendar.current.startOfDay(for: draft.scheduledDeparture)
+                    let isDuplicate = flights.contains { existing in
+                        let existingDate = Calendar.current.startOfDay(for: existing.scheduledDeparture)
+                        return existing.flightNumber.uppercased() == draft.flightNumber.uppercased() &&
+                               existingDate == departureDate
+                    }
+                    
+                    if isDuplicate {
+                        // Show error - flight already exists
+                        deleteHaptic.notificationOccurred(.error)
+                        return
+                    }
+                    
                     let origin = upsertAirport(
                         code: draft.originCode,
                         fallbackName: draft.originName,
@@ -652,7 +666,16 @@ struct TMinusCountdownView: View {
 
     private var countdownString: String {
         if timeRemaining <= 0 {
-            return "DEPARTED"
+            // Flight is past scheduled departure
+            // Use computedFlightStatus to determine if arrived or still en route
+            switch flight.computedFlightStatus {
+            case .arrived:
+                return "ARRIVED"
+            case .enRoute:
+                return "EN ROUTE"
+            default:
+                return "DEPARTED"
+            }
         }
 
         let hours = Int(timeRemaining) / 3600
@@ -1318,6 +1341,7 @@ private struct AddFlightSheet: View {
     @State private var previewFlight: Flight? = nil
     @State private var searchError: String?
     @State private var showManualEntry = false
+    @FocusState private var isFlightNumberFocused: Bool
 
     // Manual entry state (only used when showManualEntry = true)
     @State private var manualAirline = ""
@@ -1368,6 +1392,7 @@ private struct AddFlightSheet: View {
                                 .autocorrectionDisabled()
                                 .padding()
                                 .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
+                                .focused($isFlightNumberFocused)
                                 .onChange(of: flightNumber) { _, _ in
                                     // Clear previous search when typing
                                     searchResult = nil
@@ -1381,7 +1406,7 @@ private struct AddFlightSheet: View {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(.secondary)
 
-                        HStack(spacing: 12) {
+                        HStack(spacing: 8) {
                             DateChip(title: "Today", isSelected: Calendar.current.isDateInToday(selectedDate)) {
                                 selectedDate = Date()
                                 searchResult = nil
@@ -1392,16 +1417,17 @@ private struct AddFlightSheet: View {
                                 searchResult = nil
                             }
 
-                            // Custom date picker with highlighting
+                            // Custom date picker with white text + blue background when selected
                             let isCustomDate = !Calendar.current.isDateInToday(selectedDate) && !Calendar.current.isDateInTomorrow(selectedDate)
                             DatePicker("", selection: $selectedDate, displayedComponents: .date)
                                 .labelsHidden()
                                 .onChange(of: selectedDate) { _, _ in
                                     searchResult = nil
                                 }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .background(isCustomDate ? Color.blue.opacity(0.12) : Color(.systemGray6), in: RoundedRectangle(cornerRadius: 8))
+                                .tint(isCustomDate ? .white : .blue)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(isCustomDate ? Color.blue : Color(.systemGray5), in: Capsule())
                                 .frame(maxWidth: .infinity)
                         }
 
@@ -1498,6 +1524,9 @@ private struct AddFlightSheet: View {
     }
 
     private func searchFlight() async {
+        // Hide keyboard when searching
+        isFlightNumberFocused = false
+
         isSearching = true
         searchError = nil
         searchResult = nil

@@ -188,6 +188,7 @@ struct FlightListItemView: View {
             HStack {
                 HStack(spacing: 8) {
                     AirlineLogoView(airlineIATA: flight.airlineIATA, airlineName: flight.airline, size: 28)
+                        .frame(height: 28)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(flight.airline)
@@ -199,6 +200,7 @@ struct FlightListItemView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+                .frame(height: 32, alignment: .center)
 
                 Spacer()
 
