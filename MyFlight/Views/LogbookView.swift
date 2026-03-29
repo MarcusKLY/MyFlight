@@ -309,18 +309,8 @@ struct LogbookView: View {
                             Label("Clear All Data", systemImage: "trash.fill")
                         }
 
-                        Menu {
-                            Button {
-                                exportBackupCSV()
-                            } label: {
-                                Label("Export as CSV", systemImage: "doc.text")
-                            }
-                            
-                            Button {
-                                exportBackup()
-                            } label: {
-                                Label("Export as JSON", systemImage: "doc.badge.gearshape")
-                            }
+                        Button {
+                            exportBackup()
                         } label: {
                             Label("Export Backup", systemImage: "square.and.arrow.up")
                         }
@@ -337,8 +327,9 @@ struct LogbookView: View {
                             Label("Export Debug Info", systemImage: "doc.on.doc")
                         }
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.headline)
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.blue)
                     }
                 }
             }
@@ -445,134 +436,13 @@ struct LogbookView: View {
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("MyFlight-Logbook-Backup-\(Date().timeIntervalSince1970).json")
             try data.write(to: tempURL, options: .atomic)
 
-            let activity = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
-            if let windowScene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive }),
-               let root = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                root.present(activity, animated: true, completion: nil)
-            }
+            ShareCoordinator.share([tempURL])
         } catch {
             importResultMessage = "Failed to export backup: \(error.localizedDescription)"
             showImportResultAlert = true
         }
     }
     
-    private func exportBackupCSV() {
-        do {
-            let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            
-            // Create CSV files
-            let flightsCSV = generateFlightsCSV()
-            let transitCSV = generateTransitCSV()
-            let airportsCSV = generateAirportsCSV()
-            
-            // Save to temporary directory
-            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("MyFlight-CSV-\(timestamp)")
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            
-            let flightsURL = tempDir.appendingPathComponent("flights.csv")
-            let transitURL = tempDir.appendingPathComponent("transit.csv")
-            let airportsURL = tempDir.appendingPathComponent("airports.csv")
-            
-            try flightsCSV.write(to: flightsURL, atomically: true, encoding: .utf8)
-            try transitCSV.write(to: transitURL, atomically: true, encoding: .utf8)
-            try airportsCSV.write(to: airportsURL, atomically: true, encoding: .utf8)
-            
-            // Share all three files
-            let activity = UIActivityViewController(
-                activityItems: [flightsURL, transitURL, airportsURL],
-                applicationActivities: nil
-            )
-            if let windowScene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive }),
-               let root = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                root.present(activity, animated: true)
-            }
-        } catch {
-            importResultMessage = "Failed to export CSV: \(error.localizedDescription)"
-            showImportResultAlert = true
-        }
-    }
-    
-    private func generateFlightsCSV() -> String {
-        var csv = "Flight Number,Airline,IATA,Origin,Destination,Scheduled Departure,Scheduled Arrival,Status,Aircraft,Tail Number,Departure Gate,Departure Terminal,Arrival Gate,Arrival Terminal,Seat Number,Seat Class,Seat Position\n"
-        
-        for flight in flights.sorted(by: { $0.scheduledDeparture < $1.scheduledDeparture }) {
-            let row = [
-                escapeCSV(flight.flightNumber),
-                escapeCSV(flight.airline),
-                escapeCSV(flight.airlineIATA ?? ""),
-                escapeCSV(flight.origin.iataCode),
-                escapeCSV(flight.destination.iataCode),
-                ISO8601DateFormatter().string(from: flight.scheduledDeparture),
-                ISO8601DateFormatter().string(from: flight.scheduledArrival ?? flight.scheduledDeparture),
-                escapeCSV(flight.flightStatus.rawValue),
-                escapeCSV(flight.aircraftModel ?? ""),
-                escapeCSV(flight.tailNumber ?? ""),
-                escapeCSV(flight.departureGate ?? ""),
-                escapeCSV(flight.departureTerminal ?? ""),
-                escapeCSV(flight.arrivalGate ?? ""),
-                escapeCSV(flight.arrivalTerminal ?? ""),
-                escapeCSV(flight.seatNumber ?? ""),
-                escapeCSV(flight.seatClass?.rawValue ?? ""),
-                escapeCSV(flight.seatPosition?.rawValue ?? "")
-            ].joined(separator: ",")
-            csv += row + "\n"
-        }
-        
-        return csv
-    }
-    
-    private func generateTransitCSV() -> String {
-        var csv = "Transit Type,Operator,Route Number,Origin,Destination,Origin Lat,Origin Lon,Dest Lat,Dest Lon,Scheduled Departure,Scheduled Arrival,Notes\n"
-        
-        for transit in transitSegments.sorted(by: { $0.scheduledDeparture < $1.scheduledDeparture }) {
-            let row = [
-                escapeCSV(transit.transitType.rawValue),
-                escapeCSV(transit.operatorName),
-                escapeCSV(transit.routeNumber),
-                escapeCSV(transit.originName),
-                escapeCSV(transit.destinationName),
-                String(transit.originLatitude),
-                String(transit.originLongitude),
-                String(transit.destinationLatitude),
-                String(transit.destinationLongitude),
-                ISO8601DateFormatter().string(from: transit.scheduledDeparture),
-                ISO8601DateFormatter().string(from: transit.scheduledArrival),
-                escapeCSV(transit.notes ?? "")
-            ].joined(separator: ",")
-            csv += row + "\n"
-        }
-        
-        return csv
-    }
-    
-    private func generateAirportsCSV() -> String {
-        var csv = "IATA Code,Name,Latitude,Longitude,Timezone\n"
-        
-        for airport in airports.sorted(by: { $0.iataCode < $1.iataCode }) {
-            let row = [
-                escapeCSV(airport.iataCode),
-                escapeCSV(airport.name),
-                String(airport.latitude),
-                String(airport.longitude),
-                escapeCSV(airport.timezone ?? "")
-            ].joined(separator: ",")
-            csv += row + "\n"
-        }
-        
-        return csv
-    }
-    
-    private func escapeCSV(_ value: String) -> String {
-        if value.contains(",") || value.contains("\"") || value.contains("\n") {
-            return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
-        }
-        return value
-    }
-
     private func importBackup(from url: URL, merge: Bool = false) {
         do {
             let data = try Data(contentsOf: url)
@@ -823,20 +693,18 @@ struct LogbookView: View {
                         .foregroundColor(selectedYear == nil ? .white : .primary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .background(selectedYear == nil ? Color.blue : Color(.secondarySystemGroupedBackground))
-                        .cornerRadius(6)
+                        .background(selectedYear == nil ? Color.blue : Color(.secondarySystemGroupedBackground), in: Capsule())
                 }
                 
                 // Year buttons
                 ForEach(availableYears, id: \.self) { year in
                     Button(action: { selectedYear = year }) {
-                        Text("\(year)")
+                        Text(String(year))
                             .font(.subheadline.weight(.semibold))
                             .foregroundColor(selectedYear == year ? .white : .primary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(selectedYear == year ? Color.blue : Color(.secondarySystemGroupedBackground))
-                            .cornerRadius(6)
+                            .background(selectedYear == year ? Color.blue : Color(.secondarySystemGroupedBackground), in: Capsule())
                     }
                 }
             }
@@ -1337,7 +1205,8 @@ struct StatCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color(.secondarySystemGroupedBackground))
+        .cornerRadius(10)
     }
 }
 
@@ -1412,7 +1281,8 @@ struct MiniStatCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color(.secondarySystemGroupedBackground))
+        .cornerRadius(10)
     }
 }
 
@@ -1618,3 +1488,30 @@ struct LogbookSheetView: View {
     LogbookView()
         .modelContainer(for: [Airport.self, Flight.self], inMemory: true)
 }
+
+// MARK: - ShareCoordinator
+
+class ShareCoordinator {
+    static func share(_ items: [Any]) {
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+            let window = windowScene.windows.first(where: { $0.isKeyWindow }),
+            let rootVC = window.rootViewController else {
+            print("ShareCoordinator: Could not find root window/view controller")
+            return
+        }
+        
+        // Create the activity view controller
+        let activity = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        activity.excludedActivityTypes = [.print, .assignToContact, .saveToCameraRoll, .addToReadingList]
+        
+        // Present from the root view controller directly
+        // First dismiss any sheets, then present
+        rootVC.dismiss(animated: true) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                rootVC.present(activity, animated: true)
+            }
+        }
+    }
+}
+

@@ -16,6 +16,9 @@ struct SettingsView: View {
     @AppStorage("flightColorUnselected") private var flightColorUnselected: String = "gray"
     @AppStorage("routeLineThickness") private var lineThickness: Double = 4.0
     @AppStorage("routeLineStyle") private var lineStyle: String = "dashed"
+    @AppStorage("routeLineOpacity") private var lineOpacity: Double = 0.6
+    @AppStorage("showFlightDots") private var showFlightDots: Bool = true
+    @AppStorage("showTransitDots") private var showTransitDots: Bool = true
     
     private let availableColors = [
         ("orange", Color.orange),
@@ -46,12 +49,25 @@ struct SettingsView: View {
                         Slider(value: $lineThickness, in: 1.0...6.0, step: 0.5)
                     }
                     
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Opacity: \(Int(lineOpacity * 100))%")
+                            .font(.subheadline)
+                        Slider(value: $lineOpacity, in: 0.1...1.0, step: 0.05)
+                    }
+                    
                     Picker("Line Style", selection: $lineStyle) {
                         Text("Solid").tag("solid")
                         Text("Dashed").tag("dashed")
                         Text("Dotted").tag("dotted")
                     }
                     .pickerStyle(.segmented)
+                }
+                
+                Section("Route Markers") {
+                    Toggle("Show Flight Dots", isOn: $showFlightDots)
+                        .tint(.blue)
+                    Toggle("Show Transit Dots", isOn: $showTransitDots)
+                        .tint(.purple)
                 }
                 
                 Section("Flight Route Colors") {
@@ -74,6 +90,9 @@ struct SettingsView: View {
                         flightColorUnselected = "gray"
                         lineThickness = 4.0
                         lineStyle = "dashed"
+                        lineOpacity = 0.6
+                        showFlightDots = true
+                        showTransitDots = true
                     }
                 }
             }

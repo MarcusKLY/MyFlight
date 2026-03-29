@@ -33,6 +33,9 @@ struct MapViewContainer: View {
     @AppStorage("flightColorUnselected") private var flightColorUnselected: String = "gray"
     @AppStorage("routeLineThickness") private var lineThickness: Double = 4.0
     @AppStorage("routeLineStyle") private var lineStyle: String = "dashed"
+    @AppStorage("routeLineOpacity") private var lineOpacity: Double = 0.6
+    @AppStorage("showFlightDots") private var showFlightDots: Bool = true
+    @AppStorage("showTransitDots") private var showTransitDots: Bool = true
     
     private var strokeStyle: StrokeStyle {
         let width = CGFloat(lineThickness * 0.4) // Unselected is thinner
@@ -87,40 +90,44 @@ struct MapViewContainer: View {
                                 lineWidth: CGFloat(lineThickness)
                             )
                     } else {
-                        // Unselected routes - use status-based color
+                        // Unselected routes - use status-based color with user opacity
                         MapPolyline(coordinates: pathCoordinates)
                             .stroke(
                                 colorScheme == .light ? 
-                                    statusColor.opacity(0.6) : 
-                                    statusColor.opacity(0.35),
+                                    statusColor.opacity(lineOpacity) : 
+                                    statusColor.opacity(lineOpacity * 0.6),
                                 style: strokeStyle
                             )
                     }
                     
                     // Origin airport marker
-                    Annotation("", coordinate: flight.origin.coordinate) {
-                        AirportMarker(
-                            iataCode: flight.origin.iataCode,
-                            isOrigin: true,
-                            isSelected: isSelected,
-                            airport: flight.origin,
-                            selectedFlightOriginCode: selectedFlight?.origin.iataCode,
-                            selectedFlightDestCode: selectedFlight?.destination.iataCode
-                        )
-                        .zIndex(isSelected ? 100 : 0)
+                    if showFlightDots {
+                        Annotation("", coordinate: flight.origin.coordinate) {
+                            AirportMarker(
+                                iataCode: flight.origin.iataCode,
+                                isOrigin: true,
+                                isSelected: isSelected,
+                                airport: flight.origin,
+                                selectedFlightOriginCode: selectedFlight?.origin.iataCode,
+                                selectedFlightDestCode: selectedFlight?.destination.iataCode
+                            )
+                            .zIndex(isSelected ? 100 : 0)
+                        }
                     }
 
                     // Destination airport marker
-                    Annotation("", coordinate: flight.destination.coordinate) {
-                        AirportMarker(
-                            iataCode: flight.destination.iataCode,
-                            isOrigin: false,
-                            isSelected: isSelected,
-                            airport: flight.destination,
-                            selectedFlightOriginCode: selectedFlight?.origin.iataCode,
-                            selectedFlightDestCode: selectedFlight?.destination.iataCode
-                        )
-                        .zIndex(isSelected ? 100 : 0)
+                    if showFlightDots {
+                        Annotation("", coordinate: flight.destination.coordinate) {
+                            AirportMarker(
+                                iataCode: flight.destination.iataCode,
+                                isOrigin: false,
+                                isSelected: isSelected,
+                                airport: flight.destination,
+                                selectedFlightOriginCode: selectedFlight?.origin.iataCode,
+                                selectedFlightDestCode: selectedFlight?.destination.iataCode
+                            )
+                            .zIndex(isSelected ? 100 : 0)
+                        }
                     }
                 }
 
@@ -143,10 +150,10 @@ struct MapViewContainer: View {
                                 lineWidth: CGFloat(lineThickness)
                             )
                     } else {
-                        // Unselected transit routes - use style from settings
+                        // Unselected transit routes - use opacity from settings
                         MapPolyline(coordinates: pathCoordinates)
                             .stroke(
-                                transitColor.opacity(0.6),
+                                transitColor.opacity(lineOpacity),
                                 style: strokeStyle
                             )
                     }
@@ -162,12 +169,13 @@ struct MapViewContainer: View {
                                 color: transitColor
                             )
                         }
-                    } else {
-                        // Small dot for unselected transit origin
+                    } else if showTransitDots {
+                        // Small dot for unselected transit origin - match flight dot size
+                        let dotSize: CGFloat = 5  // Smaller than flight dots for visual hierarchy
                         Annotation("", coordinate: transit.originCoordinate) {
                             Circle()
                                 .fill(transitColor.opacity(0.7))
-                                .frame(width: 8, height: 8)
+                                .frame(width: dotSize, height: dotSize)
                                 .overlay(
                                     Circle()
                                         .stroke(Color.white, lineWidth: 1.5)
@@ -187,12 +195,13 @@ struct MapViewContainer: View {
                                 color: transitColor
                             )
                         }
-                    } else {
-                        // Small dot for unselected transit destination
+                    } else if showTransitDots {
+                        // Small dot for unselected transit destination - match flight dot size
+                        let dotSize: CGFloat = 5  // Smaller than flight dots for visual hierarchy
                         Annotation("", coordinate: transit.destinationCoordinate) {
                             Circle()
                                 .fill(transitColor.opacity(0.7))
-                                .frame(width: 8, height: 8)
+                                .frame(width: dotSize, height: dotSize)
                                 .overlay(
                                     Circle()
                                         .stroke(Color.white, lineWidth: 1.5)

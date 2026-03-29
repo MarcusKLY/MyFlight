@@ -25,7 +25,8 @@ struct MainTabView: View {
     // Preserve state across interactions
     @State private var selectedFlight: Flight?
     @State private var selectedTransit: TransitSegment?
-    @State private var sheetDetent: PresentationDetent = .fraction(0.12)
+    @State private var sheetDetent: PresentationDetent = .fraction(0.12)  // For My Trip
+    @State private var logbookSheetDetent: PresentationDetent = .height(320)  // For Logbook
     @State private var showLogbook = false
 
     var body: some View {
@@ -37,9 +38,12 @@ struct MainTabView: View {
         )
         .sheet(isPresented: $showLogbook) {
             LogbookSheetView()
-                .presentationDetents([.height(180), .large])
+                .presentationDetents([.height(320), .large], selection: $logbookSheetDetent)
                 .presentationDragIndicator(.visible)
-                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                .presentationBackgroundInteraction(.enabled)
+                .onAppear {
+                    logbookSheetDetent = .height(320)
+                }
         }
     }
 }
@@ -191,12 +195,12 @@ struct LiveMapTab: View {
                     FloatingButton(systemImage: "list.bullet") {
                         if activeSheet == .flightList {
                             activeSheet = nil
-                            sheetDetent = .height(180)  // Reset to collapsed state
+                            sheetDetent = .height(290)  // Reset to collapsed state
                         } else {
                             // Simultaneous transition: close logbook and open flight list at same time
                             showLogbook = false
                             activeSheet = .flightList
-                            sheetDetent = .height(180)
+                            sheetDetent = .height(290)
                         }
                     }
                 }
@@ -248,15 +252,12 @@ struct LiveMapTab: View {
                         activeSheet = .transitDetail(transit)
                     }
                 )
-                .presentationDetents(
-                    [.height(180), .large],
-                    selection: $sheetDetent
-                )
+                .presentationDetents([.height(290), .large], selection: $sheetDetent)
                 .presentationDragIndicator(.visible)
                 .presentationBackgroundInteraction(.enabled)
                 .presentationBackground(Color(.systemGroupedBackground))
                 .onAppear {
-                    sheetDetent = .height(180)
+                    sheetDetent = .height(290)
                 }
 
             case .flightDetail(let flight):
@@ -1551,6 +1552,7 @@ private struct AddFlightSheet: View {
             .sheet(isPresented: $showManualEntry) {
                 ManualFlightEntrySheet(
                     airports: airports,
+                    existingFlights: existingFlights,
                     initialFlightNumber: flightNumber,
                     initialDate: selectedDate,
                     onSave: onSave
@@ -1931,6 +1933,7 @@ private struct SearchResultCard: View {
 
 private struct ManualFlightEntrySheet: View {
     let airports: [Airport]
+    let existingFlights: [Flight]  // For auto-fill
     let initialFlightNumber: String
     let initialDate: Date
     let onSave: (FlightDraft) -> Void
@@ -1945,8 +1948,9 @@ private struct ManualFlightEntrySheet: View {
     @State private var scheduledArrival: Date?
     @State private var validationMessage: String?
 
-    init(airports: [Airport], initialFlightNumber: String, initialDate: Date, onSave: @escaping (FlightDraft) -> Void) {
+    init(airports: [Airport], existingFlights: [Flight], initialFlightNumber: String, initialDate: Date, onSave: @escaping (FlightDraft) -> Void) {
         self.airports = airports
+        self.existingFlights = existingFlights
         self.initialFlightNumber = initialFlightNumber
         self.initialDate = initialDate
         self.onSave = onSave
@@ -1988,6 +1992,18 @@ private struct ManualFlightEntrySheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
                 }
+                ToolbarItem(placement: .principal) {
+                    Button {
+                        autoFillFromExisting()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "wand.and.stars")
+                            Text("Auto-fill")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.blue)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
                         saveManualFlight()
@@ -2001,6 +2017,30 @@ private struct ManualFlightEntrySheet: View {
             } message: {
                 Text(validationMessage ?? "")
             }
+        }
+    }
+    
+    private func autoFillFromExisting() {
+        let normalized = flightNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .replacingOccurrences(of: " ", with: "")
+        
+        guard let existingFlight = existingFlights.first(where: { flight in
+            flight.flightNumber.uppercased().replacingOccurrences(of: " ", with: "") == normalized
+        }) else {
+            validationMessage = "No existing flight found with number \(flightNumber)"
+            return
+        }
+        
+        // Auto-fill fields from existing flight
+        airline = existingFlight.airline
+        originCode = existingFlight.origin.iataCode
+        destinationCode = existingFlight.destination.iataCode
+        
+        // Keep the current selected date but use similar duration
+        if let existingArrival = existingFlight.scheduledArrival {
+            let duration = existingArrival.timeIntervalSince(existingFlight.scheduledDeparture)
+            scheduledArrival = scheduledDeparture.addingTimeInterval(duration)
         }
     }
 
