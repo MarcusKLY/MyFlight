@@ -10,11 +10,16 @@ import SwiftData
 
 struct FlightDetailView: View {
     let flight: Flight
+    var isPreview: Bool = false  // Hide menu when previewing unsaved flights
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @State private var isRefreshing = false
     @State private var isFlipped = false
+    @State private var showEditSheet = false
+    @State private var showDeleteConfirmation = false
+    @State private var showCalendarAlert = false
+    @State private var calendarMessage = ""
 
     // Keep both card faces the same size to prevent layout jumps when flipping.
     private let aircraftHeroHeight: CGFloat = 190
@@ -40,22 +45,53 @@ struct FlightDetailView: View {
                         .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity, alignment: .center)
 
-                    Button {
-                        Task { await refreshFlight() }
-                    } label: {
-                        if isRefreshing {
-                            ProgressView()
-                                .controlSize(.small)
-                                .frame(width: 36, height: 36)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 18, weight: .semibold))
-                                .frame(width: 36, height: 36)
+                    // 3-dot menu - only show when not in preview mode
+                    if isPreview {
+                        // Placeholder to balance the layout
+                        Color.clear
+                            .frame(width: 36, height: 36)
+                    } else {
+                        Menu {
+                            Button {
+                                Task { await refreshFlight() }
+                            } label: {
+                                Label("Reload", systemImage: "arrow.clockwise")
+                            }
+                            .disabled(isRefreshing)
+                            
+                            Button {
+                                showEditSheet = true
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            
+                            Button {
+                                addToCalendar()
+                            } label: {
+                                Label("Add to Calendar", systemImage: "calendar.badge.plus")
+                            }
+                            
+                            Divider()
+                            
+                            Button(role: .destructive) {
+                                showDeleteConfirmation = true
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        } label: {
+                            if isRefreshing {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .frame(width: 36, height: 36)
+                            } else {
+                                Image(systemName: "ellipsis.circle")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .frame(width: 36, height: 36)
+                            }
                         }
+                        .foregroundStyle(.blue)
+                        .accessibilityLabel("More options")
                     }
-                    .foregroundStyle(.blue)
-                    .disabled(isRefreshing)
-                    .accessibilityLabel("Refresh flight status")
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
@@ -84,6 +120,12 @@ struct FlightDetailView: View {
                                 .padding(.vertical, 16)
                             Divider()
                         }
+                        
+                        if hasSeatInfo {
+                            seatSection
+                                .padding(.vertical, 16)
+                            Divider()
+                        }
 
                         if hasAircraftInfo {
                             aircraftSection
@@ -97,6 +139,42 @@ struct FlightDetailView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .sheet(isPresented: $showEditSheet) {
+            EditFlightSheet(flight: flight)
+        }
+        .alert("Delete Flight", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteFlight()
+            }
+        } message: {
+            Text("Are you sure you want to delete \(flight.flightNumber)? This action cannot be undone.")
+        }
+        .alert("Calendar", isPresented: $showCalendarAlert) {
+            Button("OK") { }
+        } message: {
+            Text(calendarMessage)
+        }
+    }
+    
+    private func deleteFlight() {
+        modelContext.delete(flight)
+        dismiss()
+    }
+    
+    private func addToCalendar() {
+        Task {
+            let result = await CalendarService.addFlightToCalendar(flight)
+            await MainActor.run {
+                switch result {
+                case .success:
+                    calendarMessage = "Flight added to calendar successfully"
+                case .failure(let error):
+                    calendarMessage = error.localizedDescription ?? "Failed to add to calendar"
+                }
+                showCalendarAlert = true
+            }
         }
     }
 
@@ -741,6 +819,35 @@ struct FlightDetailView: View {
                     infoRow(icon: "road.lanes", label: "Arr Runway", value: flight.arrivalRunway)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - Seat Section
+    
+    private var hasSeatInfo: Bool {
+        flight.seatNumber != nil ||
+        flight.seatClass != nil ||
+        flight.seatPosition != nil
+    }
+    
+    private var seatSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionLabel("Your Seat")
+            
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let seatNumber = flight.seatNumber {
+                        infoRow(icon: "chair", label: "Seat", value: seatNumber)
+                    }
+                    if let seatClass = flight.seatClass {
+                        infoRow(icon: seatClass.icon, label: "Class", value: seatClass.rawValue)
+                    }
+                    if let seatPosition = flight.seatPosition {
+                        infoRow(icon: seatPosition.icon, label: "Position", value: seatPosition.rawValue)
+                    }
+                }
+                Spacer()
             }
         }
     }

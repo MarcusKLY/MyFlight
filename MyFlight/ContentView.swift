@@ -19,35 +19,28 @@ struct ContentView: View {
     }
 }
 
-// MARK: - TabView Architecture
+// MARK: - Main App View (No TabView - Single Map with Logbook Sheet)
 
 struct MainTabView: View {
-    @State private var selectedTab = 0
-    
-    // Preserve state across tab transitions
+    // Preserve state across interactions
     @State private var selectedFlight: Flight?
     @State private var selectedTransit: TransitSegment?
     @State private var sheetDetent: PresentationDetent = .fraction(0.12)
+    @State private var showLogbook = false
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            LiveMapTab(
-                selectedFlight: $selectedFlight,
-                selectedTransit: $selectedTransit,
-                sheetDetent: $sheetDetent
-            )
-                .tabItem {
-                    Label("Live Map", systemImage: "map.fill")
-                }
-                .tag(0)
-
-            LogbookView()
-                .tabItem {
-                    Label("Logbook", systemImage: "book.closed.fill")
-                }
-                .tag(1)
+        LiveMapTab(
+            selectedFlight: $selectedFlight,
+            selectedTransit: $selectedTransit,
+            sheetDetent: $sheetDetent,
+            showLogbook: $showLogbook
+        )
+        .sheet(isPresented: $showLogbook) {
+            LogbookSheetView()
+                .presentationDetents([.height(180), .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
-        .tint(.blue)
     }
 }
 
@@ -97,6 +90,7 @@ struct LiveMapTab: View {
     @Binding var selectedFlight: Flight?
     @Binding var selectedTransit: TransitSegment?
     @Binding var sheetDetent: PresentationDetent
+    @Binding var showLogbook: Bool
     @State private var mapPosition: MapCameraPosition = .automatic
     @State private var activeSheet: ActiveSheet? = .flightList
     @State private var mapStyleMode: FlightMapStyleMode = .mutedStandard
@@ -182,38 +176,27 @@ struct LiveMapTab: View {
                         mapStyleMode.toggle()
                     }
 
-                    // Add flight/transit menu
-                    Menu {
-                        Button(action: {
-                            activeSheet = .addFlight
-                        }) {
-                            Label("Add Flight", systemImage: "airplane")
-                        }
-                        Button(action: {
-                            activeSheet = .addTransit
-                        }) {
-                            Label("Add Transit", systemImage: "bus")
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 32, height: 32)
-                            .padding(4)
-                            .background(.ultraThinMaterial, in: Circle())
-                            .shadow(color: .black.opacity(0.1), radius: 1.5, y: 1)
-                    }
-                    .foregroundColor(.primary)
-
-                    // Show flight list button / close button when list is open
-                    if activeSheet == .flightList {
-                        FloatingButton(systemImage: "xmark", isClose: true) {
+                    // Logbook button - closes flight list if open
+                    FloatingButton(systemImage: "book.closed") {
+                        if showLogbook {
+                            showLogbook = false
+                        } else {
+                            // Simultaneous transition: close flight list and open logbook at same time
                             activeSheet = nil
-                            sheetDetent = .fraction(0.12)  // Reset to collapsed state
+                            showLogbook = true
                         }
-                    } else {
-                        FloatingButton(systemImage: "list.bullet") {
+                    }
+
+                    // Show flight list button (always shows list.bullet, no X)
+                    FloatingButton(systemImage: "list.bullet") {
+                        if activeSheet == .flightList {
+                            activeSheet = nil
+                            sheetDetent = .height(180)  // Reset to collapsed state
+                        } else {
+                            // Simultaneous transition: close logbook and open flight list at same time
+                            showLogbook = false
                             activeSheet = .flightList
-                            sheetDetent = .fraction(0.33)
+                            sheetDetent = .height(180)
                         }
                     }
                 }
@@ -266,14 +249,14 @@ struct LiveMapTab: View {
                     }
                 )
                 .presentationDetents(
-                    [.fraction(0.33), .medium, .large],
+                    [.height(180), .large],
                     selection: $sheetDetent
                 )
                 .presentationDragIndicator(.visible)
                 .presentationBackgroundInteraction(.enabled)
                 .presentationBackground(Color(.systemGroupedBackground))
                 .onAppear {
-                    sheetDetent = .fraction(0.33)
+                    sheetDetent = .height(180)
                 }
 
             case .flightDetail(let flight):
@@ -281,7 +264,10 @@ struct LiveMapTab: View {
                     .presentationBackground(Color(.systemGroupedBackground))
 
             case .addFlight:
-                AddFlightSheet(airports: FlightSeedData.defaultAirports(from: airports)) { draft in
+                AddFlightSheet(
+                    airports: FlightSeedData.defaultAirports(from: airports),
+                    existingFlights: flights
+                ) { draft in
                     // Check for duplicate flight (same flight number and departure date)
                     let departureDate = Calendar.current.startOfDay(for: draft.scheduledDeparture)
                     let isDuplicate = flights.contains { existing in
@@ -597,12 +583,13 @@ struct TMinusCountdownView: View {
     let showNextBadge: Bool
     let onCloseTracking: (() -> Void)?
     @State private var timeRemaining: TimeInterval = 0
+    @State private var timeToArrival: TimeInterval = 0
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "airplane.departure")
+            Image(systemName: statusIcon)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(statusGradient)
                 .padding(.top, 2)
@@ -661,61 +648,118 @@ struct TMinusCountdownView: View {
     }
 
     private func updateTimeRemaining() {
-        timeRemaining = max(0, flight.scheduledDeparture.timeIntervalSinceNow)
+        timeRemaining = max(0, flight.effectiveDeparture.timeIntervalSinceNow)
+        if let arrival = flight.progressArrival {
+            timeToArrival = max(0, arrival.timeIntervalSinceNow)
+        } else {
+            timeToArrival = 0
+        }
+    }
+    
+    private var statusIcon: String {
+        switch flight.computedFlightStatus {
+        case .arrived, .arrivedLate:
+            return "airplane.arrival"
+        case .enRoute:
+            return "airplane"
+        case .cancelled:
+            return "xmark.circle"
+        default:
+            return "airplane.departure"
+        }
     }
 
     private var countdownString: String {
-        if timeRemaining <= 0 {
-            // Flight is past scheduled departure
-            // Use computedFlightStatus to determine if arrived or still en route
-            switch flight.computedFlightStatus {
-            case .arrived:
-                return "ARRIVED"
-            case .enRoute:
-                return "EN ROUTE"
-            default:
-                return "DEPARTED"
+        let status = flight.computedFlightStatus
+        
+        switch status {
+        case .arrived:
+            return "Arrived"
+        case .arrivedLate:
+            return "Arrived Late"
+        case .enRoute:
+            // Show time to arrival
+            if timeToArrival > 0 {
+                return "Arriving in \(formatTimeInterval(timeToArrival))"
             }
+            return "En Route"
+        case .cancelled:
+            return "Cancelled"
+        default:
+            // Future flight - show countdown to departure
+            if timeRemaining <= 0 {
+                return "Departed"
+            }
+            return formatCountdown(timeRemaining)
         }
-
-        let hours = Int(timeRemaining) / 3600
-        let minutes = (Int(timeRemaining) % 3600) / 60
-        let seconds = Int(timeRemaining) % 60
-
-        if hours > 24 {
+    }
+    
+    private func formatCountdown(_ interval: TimeInterval) -> String {
+        let totalMinutes = Int(interval) / 60
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        let seconds = Int(interval) % 60
+        
+        if hours >= 24 {
             let days = hours / 24
-            return "T-\(days)d \(hours % 24)h"
+            let remainingHours = hours % 24
+            return "T-\(days)d \(remainingHours)h"
         } else if hours > 0 {
             return String(format: "T-%02d:%02d:%02d", hours, minutes, seconds)
         } else {
             return String(format: "T-%02d:%02d", minutes, seconds)
         }
     }
+    
+    private func formatTimeInterval(_ interval: TimeInterval) -> String {
+        let totalMinutes = Int(interval) / 60
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        
+        if hours >= 24 {
+            let days = hours / 24
+            let remainingHours = hours % 24
+            return "\(days)d \(remainingHours)h"
+        } else if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
+    
+    private func formatDuration(minutes: Int) -> String {
+        if minutes >= 60 {
+            let h = minutes / 60
+            let m = minutes % 60
+            return m > 0 ? "\(h)h \(m)m" : "\(h)h"
+        }
+        return "\(minutes)m"
+    }
 
     private var statusGradient: LinearGradient {
-        let hours = timeRemaining / 3600
-
-        if hours < 1 {
-            // Imminent - red/orange pulse
-            return LinearGradient(
-                colors: [.red, .orange],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        } else if hours < 6 {
-            // Soon - orange/yellow
-            return LinearGradient(
-                colors: [.orange, .yellow],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        } else {
-            // Relaxed - blue/cyan
-            return LinearGradient(
-                colors: [.blue, .cyan],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
+        let status = flight.computedFlightStatus
+        
+        switch status {
+        case .arrived:
+            return LinearGradient(colors: [.green, .mint], startPoint: .leading, endPoint: .trailing)
+        case .arrivedLate:
+            return LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing)
+        case .enRoute:
+            return LinearGradient(colors: [.cyan, .blue], startPoint: .leading, endPoint: .trailing)
+        case .cancelled:
+            return LinearGradient(colors: [.red, .pink], startPoint: .leading, endPoint: .trailing)
+        case .delayed:
+            return LinearGradient(colors: [.yellow, .orange], startPoint: .leading, endPoint: .trailing)
+        default:
+            // Future flights - color based on time remaining
+            let hours = timeRemaining / 3600
+            if hours < 1 {
+                return LinearGradient(colors: [.red, .orange], startPoint: .leading, endPoint: .trailing)
+            } else if hours < 6 {
+                return LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing)
+            } else {
+                return LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing)
+            }
         }
     }
 }
@@ -1076,18 +1120,9 @@ struct CombinedListSheet: View {
 
     private var listContent: some View {
         List {
-            // Upcoming section
-            Section {
-                if !hasUpcoming {
-                    HStack {
-                        Image(systemName: "calendar.badge.clock")
-                            .foregroundStyle(.secondary)
-                        Text("No upcoming trips")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .listRowBackground(Color.clear)
-                } else {
+            // Upcoming section - only show if there are upcoming items
+            if hasUpcoming {
+                Section {
                     // Combine and sort upcoming items by departure time
                     ForEach(sortedUpcomingItems, id: \.id) { item in
                         switch item {
@@ -1147,9 +1182,9 @@ struct CombinedListSheet: View {
                             }
                         }
                     }
+                } header: {
+                    SectionHeader(title: "Upcoming", count: upcomingCount, icon: "airplane.departure")
                 }
-            } header: {
-                SectionHeader(title: "Upcoming", count: upcomingCount, icon: "airplane.departure")
             }
 
             // Past section
@@ -1329,6 +1364,7 @@ struct FlightListSheet: View {
 
 private struct AddFlightSheet: View {
     let airports: [Airport]
+    let existingFlights: [Flight]  // For auto-fill from similar flights
     let onSave: (FlightDraft) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -1468,7 +1504,7 @@ private struct AddFlightSheet: View {
                             onTap: { previewFlight = makePreviewFlight(from: result) }
                         )
                         .sheet(item: $previewFlight) { flight in
-                            FlightDetailView(flight: flight)
+                            FlightDetailView(flight: flight, isPreview: true)
                         }
                     }
 
@@ -1530,18 +1566,94 @@ private struct AddFlightSheet: View {
         isSearching = true
         searchError = nil
         searchResult = nil
+        
+        let normalizedFlightNumber = flightNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .replacingOccurrences(of: " ", with: "")
 
         do {
             let result = try await FlightLookupService.lookup(
-                flightNumber: flightNumber.trimmingCharacters(in: .whitespacesAndNewlines),
+                flightNumber: normalizedFlightNumber,
                 date: selectedDate
             )
             searchResult = result
         } catch {
-            searchError = error.localizedDescription
+            // API lookup failed - try to find similar flight from existing flights
+            if let similarFlight = findSimilarExistingFlight(flightNumber: normalizedFlightNumber) {
+                // Create result from existing flight data
+                searchResult = createResultFromExistingFlight(similarFlight, date: selectedDate)
+                searchError = "Flight details auto-filled from previous \(similarFlight.flightNumber) flight"
+            } else {
+                searchError = error.localizedDescription
+            }
         }
 
         isSearching = false
+    }
+    
+    // Find existing flight with same flight number (ignoring spaces)
+    private func findSimilarExistingFlight(flightNumber: String) -> Flight? {
+        let normalized = flightNumber.uppercased().replacingOccurrences(of: " ", with: "")
+        return existingFlights.first { flight in
+            flight.flightNumber.uppercased().replacingOccurrences(of: " ", with: "") == normalized
+        }
+    }
+    
+    // Create a FlightLookupResult from an existing flight
+    private func createResultFromExistingFlight(_ flight: Flight, date: Date) -> FlightLookupResult {
+        FlightLookupResult(
+            flightNumber: flight.flightNumber,
+            airline: flight.airline,
+            airlineIATA: flight.airlineIATA,
+            originIATACode: flight.origin.iataCode,
+            destinationIATACode: flight.destination.iataCode,
+            originName: flight.origin.name,
+            destinationName: flight.destination.name,
+            originLatitude: flight.origin.latitude,
+            originLongitude: flight.origin.longitude,
+            destinationLatitude: flight.destination.latitude,
+            destinationLongitude: flight.destination.longitude,
+            originTimezone: flight.origin.timezone,
+            destinationTimezone: flight.destination.timezone,
+            scheduledDeparture: date,  // Use the selected date
+            revisedDeparture: nil,
+            estimatedDeparture: nil,
+            actualDeparture: nil,
+            runwayDeparture: nil,
+            runwayArrival: nil,
+            revisedArrival: nil,
+            estimatedArrival: nil,
+            predictedArrival: nil,
+            scheduledArrival: date.addingTimeInterval(flight.scheduledArrival?.timeIntervalSince(flight.scheduledDeparture) ?? 7200),
+            actualArrival: nil,
+            departureGate: nil,
+            departureTerminal: flight.departureTerminal,
+            departureRunway: nil,
+            departureCheckInDesk: nil,
+            arrivalGate: nil,
+            arrivalTerminal: flight.arrivalTerminal,
+            arrivalRunway: nil,
+            baggageClaim: nil,
+            aircraftModel: flight.aircraftModel,
+            aircraftImageUrl: flight.aircraftImageUrl,
+            aircraftAge: flight.aircraftAge,
+            tailNumber: nil,  // Different aircraft likely
+            aircraftTypeName: flight.aircraftTypeName,
+            aircraftModelCode: flight.aircraftModelCode,
+            aircraftSeatCount: flight.aircraftSeatCount,
+            aircraftEngineCount: flight.aircraftEngineCount,
+            aircraftEngineType: flight.aircraftEngineType,
+            aircraftIsActive: flight.aircraftIsActive,
+            aircraftIsFreighter: flight.aircraftIsFreighter,
+            aircraftDataVerified: flight.aircraftDataVerified,
+            aircraftManufacturedYear: flight.aircraftManufacturedYear,
+            aircraftRegistrationDate: flight.aircraftRegistrationDate,
+            distanceKm: flight.distanceKm,
+            distanceNm: flight.distanceNm,
+            distanceMiles: flight.distanceMiles,
+            callSign: nil,
+            status: .onTime
+        )
     }
 
     private func addFlightFromResult(_ result: FlightLookupResult) {

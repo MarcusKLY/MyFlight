@@ -13,6 +13,10 @@ struct TransitDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @State private var showEditSheet = false
+    @State private var showDeleteConfirmation = false
+    @State private var showCalendarAlert = false
+    @State private var calendarMessage = ""
 
     var body: some View {
         NavigationStack {
@@ -34,9 +38,34 @@ struct TransitDetailView: View {
                         .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity, alignment: .center)
 
-                    // Placeholder for symmetry
-                    Color.clear
-                        .frame(width: 36, height: 36)
+                    // 3-dot menu
+                    Menu {
+                        Button {
+                            showEditSheet = true
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        
+                        Button {
+                            addToCalendar()
+                        } label: {
+                            Label("Add to Calendar", systemImage: "calendar.badge.plus")
+                        }
+                        
+                        Divider()
+                        
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                    }
+                    .foregroundStyle(.blue)
+                    .accessibilityLabel("More options")
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
@@ -70,6 +99,42 @@ struct TransitDetailView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .sheet(isPresented: $showEditSheet) {
+            EditTransitSheet(transit: transit)
+        }
+        .alert("Delete Transit", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteTransit()
+            }
+        } message: {
+            Text("Are you sure you want to delete this \(transit.transitType.rawValue.lowercased()) trip? This action cannot be undone.")
+        }
+        .alert("Calendar", isPresented: $showCalendarAlert) {
+            Button("OK") { }
+        } message: {
+            Text(calendarMessage)
+        }
+    }
+    
+    private func deleteTransit() {
+        modelContext.delete(transit)
+        dismiss()
+    }
+    
+    private func addToCalendar() {
+        Task {
+            let result = await CalendarService.addTransitToCalendar(transit)
+            await MainActor.run {
+                switch result {
+                case .success:
+                    calendarMessage = "Transit added to calendar successfully"
+                case .failure(let error):
+                    calendarMessage = error.localizedDescription ?? "Failed to add to calendar"
+                }
+                showCalendarAlert = true
+            }
         }
     }
 

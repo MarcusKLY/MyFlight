@@ -513,6 +513,12 @@ struct StatusBadge: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
+        case .arrivedLate:
+            return LinearGradient(
+                colors: [Color.orange, Color.yellow],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
     }
 }

@@ -26,6 +26,22 @@ struct MapViewContainer: View {
     let mapStyleMode: FlightMapStyleMode
     let filter: ListFilter
     @Environment(\.colorScheme) var colorScheme
+    @AppStorage("transitColorBus") private var busColor: String = "orange"
+    @AppStorage("transitColorFerry") private var ferryColor: String = "teal"
+    @AppStorage("transitColorTrain") private var trainColor: String = "purple"
+    @AppStorage("flightColorSelected") private var flightColorSelected: String = "blue"
+    @AppStorage("flightColorUnselected") private var flightColorUnselected: String = "gray"
+    @AppStorage("routeLineThickness") private var lineThickness: Double = 4.0
+    @AppStorage("routeLineStyle") private var lineStyle: String = "dashed"
+    
+    private var strokeStyle: StrokeStyle {
+        let width = CGFloat(lineThickness * 0.4) // Unselected is thinner
+        switch lineStyle {
+        case "solid": return StrokeStyle(lineWidth: width)
+        case "dotted": return StrokeStyle(lineWidth: width, dash: [2, 4])
+        default: return StrokeStyle(lineWidth: width, dash: [8, 6])
+        }
+    }
     
     var body: some View {
         ZStack {
@@ -40,42 +56,44 @@ struct MapViewContainer: View {
                     )
 
                     let isSelected = selectedFlight?.id == flight.id
+                    let selectedColor = colorFromString(flightColorSelected)
+                    
+                    // Status-based color for routes
+                    let statusColor: Color = {
+                        switch flight.computedFlightStatus {
+                        case .arrived:
+                            return .green
+                        case .arrivedLate:
+                            return .orange
+                        case .enRoute:
+                            return .cyan
+                        default:
+                            return colorFromString(flightColorUnselected)
+                        }
+                    }()
 
-                    // Background polyline: all flights as muted grey/white
-                    MapPolyline(coordinates: pathCoordinates)
-                        .stroke(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color.white.opacity(isSelected ? 0.0 : 0.8),
-                                    Color.gray.opacity(isSelected ? 0.0 : 0.45)
-                                ]),
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            ),
-                            lineWidth: isSelected ? 0 : 2
-                        )
-
-                    // Highlighted route for selected flight only.
+                    // Highlighted route for selected flight - solid line
                     if isSelected {
                         MapPolyline(coordinates: pathCoordinates)
                             .stroke(
                                 LinearGradient(
                                     gradient: Gradient(colors: [
-                                        Color.blue.opacity(0.9),
-                                        Color.cyan.opacity(0.8)
+                                        selectedColor.opacity(0.9),
+                                        selectedColor.opacity(0.7)
                                     ]),
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 ),
-                                lineWidth: 4
+                                lineWidth: CGFloat(lineThickness)
                             )
                     } else {
+                        // Unselected routes - use status-based color
                         MapPolyline(coordinates: pathCoordinates)
                             .stroke(
                                 colorScheme == .light ? 
-                                    Color.gray.opacity(0.5) : 
-                                    Color.white.opacity(0.22),
-                                lineWidth: 1.5
+                                    statusColor.opacity(0.6) : 
+                                    statusColor.opacity(0.35),
+                                style: strokeStyle
                             )
                     }
                     
@@ -117,21 +135,19 @@ struct MapViewContainer: View {
                     let isSelected = selectedTransit?.id == transit.id
                     let transitColor = transitTypeColor(for: transit.transitType)
 
-                    // Background polyline: all transit as more visible
-                    if !isSelected {
-                        MapPolyline(coordinates: pathCoordinates)
-                            .stroke(
-                                transitColor.opacity(0.7),
-                                lineWidth: 2
-                            )
-                    }
-
-                    // Highlighted route for selected transit - solid orange
+                    // Highlighted route for selected transit - solid line with transit color
                     if isSelected {
                         MapPolyline(coordinates: pathCoordinates)
                             .stroke(
-                                Color.orange,
-                                lineWidth: 4
+                                transitColor,
+                                lineWidth: CGFloat(lineThickness)
+                            )
+                    } else {
+                        // Unselected transit routes - use style from settings
+                        MapPolyline(coordinates: pathCoordinates)
+                            .stroke(
+                                transitColor.opacity(0.6),
+                                style: strokeStyle
                             )
                     }
 
@@ -142,8 +158,21 @@ struct MapViewContainer: View {
                                 name: shortenName(transit.originName),
                                 transitType: transit.transitType,
                                 isOrigin: true,
-                                isSelected: isSelected
+                                isSelected: isSelected,
+                                color: transitColor
                             )
+                        }
+                    } else {
+                        // Small dot for unselected transit origin
+                        Annotation("", coordinate: transit.originCoordinate) {
+                            Circle()
+                                .fill(transitColor.opacity(0.7))
+                                .frame(width: 8, height: 8)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white, lineWidth: 1.5)
+                                )
+                                .shadow(color: Color.black.opacity(0.15), radius: 1)
                         }
                     }
 
@@ -154,13 +183,27 @@ struct MapViewContainer: View {
                                 name: shortenName(transit.destinationName),
                                 transitType: transit.transitType,
                                 isOrigin: false,
-                                isSelected: isSelected
+                                isSelected: isSelected,
+                                color: transitColor
                             )
+                        }
+                    } else {
+                        // Small dot for unselected transit destination
+                        Annotation("", coordinate: transit.destinationCoordinate) {
+                            Circle()
+                                .fill(transitColor.opacity(0.7))
+                                .frame(width: 8, height: 8)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white, lineWidth: 1.5)
+                                )
+                                .shadow(color: Color.black.opacity(0.15), radius: 1)
                         }
                     }
                 }
             }
             .mapStyle(mapStyle)
+            .mapControls { }  // Hide all map controls (compass, scale, Apple logo)
             .ignoresSafeArea()
         }
     }
@@ -206,9 +249,25 @@ struct MapViewContainer: View {
 
     private func transitTypeColor(for type: TransitType) -> Color {
         switch type {
-        case .bus: return .orange
-        case .ferry: return .teal
-        case .train: return .purple
+        case .bus: return colorFromString(busColor)
+        case .ferry: return colorFromString(ferryColor)
+        case .train: return colorFromString(trainColor)
+        }
+    }
+    
+    private func colorFromString(_ name: String) -> Color {
+        switch name {
+        case "orange": return .orange
+        case "teal": return .teal
+        case "purple": return .purple
+        case "blue": return .blue
+        case "cyan": return .cyan
+        case "green": return .green
+        case "yellow": return .yellow
+        case "pink": return .pink
+        case "red": return .red
+        case "indigo": return .indigo
+        default: return .gray
         }
     }
 
@@ -287,21 +346,14 @@ struct TransitMarker: View {
     let transitType: TransitType
     let isOrigin: Bool
     let isSelected: Bool
-
-    private var markerColor: Color {
-        switch transitType {
-        case .bus: return .orange
-        case .ferry: return .teal
-        case .train: return .purple
-        }
-    }
+    let color: Color
 
     var body: some View {
         Group {
             if isSelected {
                 ZStack {
                     Circle()
-                        .fill(isOrigin ? markerColor : markerColor.opacity(0.8))
+                        .fill(isOrigin ? color : color.opacity(0.8))
                         .frame(width: 28, height: 28)
                         .shadow(radius: 6)
 

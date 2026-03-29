@@ -12,12 +12,47 @@ enum FlightStatus: String, CaseIterable, Codable, Identifiable {
     case onTime = "On Time"
     case delayed = "Delayed"
     case arrived = "Arrived"
+    case arrivedLate = "Arrived Late"
     case cancelled = "Cancelled"
     case enRoute = "En Route"
     case departed = "Departed"
     case expected = "Expected"
 
     var id: String { rawValue }
+}
+
+enum SeatClass: String, CaseIterable, Codable, Identifiable {
+    case economy = "Economy"
+    case premiumEconomy = "Premium Economy"
+    case business = "Business"
+    case first = "First"
+    
+    var id: String { rawValue }
+    
+    var icon: String {
+        switch self {
+        case .economy: return "airplane.circle"
+        case .premiumEconomy: return "airplane.circle.fill"
+        case .business: return "star.circle"
+        case .first: return "crown"
+        }
+    }
+}
+
+enum SeatPosition: String, CaseIterable, Codable, Identifiable {
+    case window = "Window"
+    case middle = "Middle"
+    case aisle = "Aisle"
+    
+    var id: String { rawValue }
+    
+    var icon: String {
+        switch self {
+        case .window: return "window.casement"
+        case .middle: return "rectangle.center.inset.filled"
+        case .aisle: return "figure.walk"
+        }
+    }
 }
 
 @Model
@@ -66,6 +101,11 @@ final class Flight {
     var distanceMiles: Double?
     var callSign: String?
     private var statusRawValue: String
+    
+    // Passenger seat information
+    var seatNumber: String?
+    private var seatClassRawValue: String?
+    private var seatPositionRawValue: String?
 
     init(
         flightNumber: String,
@@ -110,7 +150,10 @@ final class Flight {
         distanceMiles: Double? = nil,
         callSign: String? = nil,
         flightStatus: FlightStatus = .onTime,
-        aircraftRegistrationDate: String? = nil
+        aircraftRegistrationDate: String? = nil,
+        seatNumber: String? = nil,
+        seatClass: SeatClass? = nil,
+        seatPosition: SeatPosition? = nil
     ) {
         self.id = UUID()
         self.flightNumber = flightNumber
@@ -156,44 +199,81 @@ final class Flight {
         self.callSign = callSign
         self.statusRawValue = flightStatus.rawValue
         self.aircraftRegistrationDate = aircraftRegistrationDate
+        self.seatNumber = seatNumber
+        self.seatClassRawValue = seatClass?.rawValue
+        self.seatPositionRawValue = seatPosition?.rawValue
     }
 
     var flightStatus: FlightStatus {
         get { FlightStatus(rawValue: statusRawValue) ?? .onTime }
         set { statusRawValue = newValue.rawValue }
     }
+    
+    var seatClass: SeatClass? {
+        get { seatClassRawValue.flatMap { SeatClass(rawValue: $0) } }
+        set { seatClassRawValue = newValue?.rawValue }
+    }
+    
+    var seatPosition: SeatPosition? {
+        get { seatPositionRawValue.flatMap { SeatPosition(rawValue: $0) } }
+        set { seatPositionRawValue = newValue?.rawValue }
+    }
 
     /// Computed status based on actual timestamps - overrides stored status for accuracy.
     var computedFlightStatus: FlightStatus {
         let now = Date()
         
-        // If flight has actually arrived, it's arrived
-        if actualArrival != nil {
-            return .arrived
+        // Helper to check if arrival was late (>15 min delay)
+        func isArrivedLate() -> Bool {
+            guard let scheduled = scheduledArrival else { return false }
+            let actualTime = actualArrival ?? runwayArrival ?? predictedArrival ?? estimatedArrival ?? revisedArrival
+            guard let actual = actualTime else { return false }
+            // Late if actual arrival is more than 15 minutes after scheduled
+            return actual.timeIntervalSince(scheduled) > 15 * 60
         }
         
-        // If flight has actually departed, check if it should be arrived based on best arrival estimate
-        if actualDeparture != nil {
-            // Use effective arrival which accounts for delays: actual > estimated > scheduled
-            let arrivalEstimate = effectiveArrival ?? Date.distantFuture
-            if now > arrivalEstimate {
-                return .arrived
+        // If flight has actually arrived (confirmed gate-in), it's arrived
+        if actualArrival != nil {
+            return isArrivedLate() ? .arrivedLate : .arrived
+        }
+        
+        // If we have a runway arrival time (touched down), it's arrived
+        if runwayArrival != nil {
+            return isArrivedLate() ? .arrivedLate : .arrived
+        }
+        
+        // Best estimate for arrival: actual > predicted > estimated > revised > scheduled
+        let bestArrivalEstimate = actualArrival ?? predictedArrival ?? estimatedArrival ?? revisedArrival ?? scheduledArrival
+        
+        // If the best arrival estimate is in the past, flight has arrived
+        // This catches cases where API data stopped updating but flight clearly landed
+        if let arrivalTime = bestArrivalEstimate, now > arrivalTime {
+            // Add 2-hour buffer for very short flights or delays in data
+            let arrivalWithBuffer = arrivalTime.addingTimeInterval(2 * 60 * 60)
+            if now > arrivalWithBuffer || flightStatus == .arrived || flightStatus == .arrivedLate {
+                return isArrivedLate() ? .arrivedLate : .arrived
+            }
+        }
+        
+        // If flight has actually departed, check if it should be arrived
+        if actualDeparture != nil || runwayDeparture != nil {
+            if let arrivalTime = bestArrivalEstimate, now > arrivalTime {
+                return isArrivedLate() ? .arrivedLate : .arrived
             }
             return .enRoute
         }
         
-        // If departure time has passed, flight has departed or is in air
+        // If departure time has passed significantly, infer status
         let departureCutoff = estimatedDeparture ?? revisedDeparture ?? scheduledDeparture
         if now > departureCutoff {
-            // Use effective arrival for delayed arrivals
-            let arrivalEstimate = effectiveArrival ?? Date.distantFuture
-            if now > arrivalEstimate {
-                return .arrived
+            if let arrivalTime = bestArrivalEstimate, now > arrivalTime {
+                return isArrivedLate() ? .arrivedLate : .arrived
             }
+            // If we're past departure but arrival is still in future, assume en route
             return .enRoute
         }
         
-        // Flight hasn't departed yet
+        // Flight hasn't departed yet - return original status
         return flightStatus
     }
 
@@ -258,10 +338,11 @@ final class Flight {
         return minutes != 0 ? minutes : nil
     }
 
-    /// Arrival delay in minutes compared to scheduled time.
+    /// Arrival delay in minutes compared to scheduled time (positive = late, negative = early).
     var arrivalDelayMinutes: Int? {
         guard let scheduled = scheduledArrival else { return nil }
-        guard let actual = actualArrival ?? estimatedArrival else { return nil }
+        // Use best available actual arrival time
+        guard let actual = actualArrival ?? runwayArrival ?? predictedArrival ?? estimatedArrival ?? revisedArrival else { return nil }
         let delta = actual.timeIntervalSince(scheduled)
         let minutes = Int(delta / 60)
         return minutes != 0 ? minutes : nil

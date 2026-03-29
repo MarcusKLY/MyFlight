@@ -24,38 +24,83 @@ struct LogbookView: View {
     @State private var showImportResultAlert = false
     @State private var importResultMessage = ""
     @State private var importMode: ImportMode = .replace
+    @State private var showSettings = false
+    @State private var selectedYear: Int? = nil  // nil = All Time
 
     private enum ImportMode: String, CaseIterable {
         case replace = "Replace Existing Data"
         case merge = "Merge Into Existing Data"
     }
+    
+    // Available years from flights/transit
+    private var availableYears: [Int] {
+        var allDates: [Date] = []
+        allDates.append(contentsOf: flights.map { $0.scheduledDeparture })
+        allDates.append(contentsOf: transitSegments.map { $0.scheduledDeparture })
+        
+        guard !allDates.isEmpty else {
+            return [Calendar.current.component(.year, from: Date())]
+        }
+        
+        let oldestDate = allDates.min() ?? Date()
+        let oldestYear = Calendar.current.component(.year, from: oldestDate)
+        let currentYear = Calendar.current.component(.year, from: Date())
+        
+        return Array(oldestYear...currentYear).reversed()
+    }
 
-    // Statistics
-    private var totalFlights: Int { flights.count }
-    private var totalTransit: Int { transitSegments.count }
-    private var totalTrips: Int { flights.count + transitSegments.count }
+    // MARK: - Filtered Data
+    
+    private var filteredFlights: [Flight] {
+        guard let year = selectedYear else { return flights }
+        
+        let calendar = Calendar.current
+        let startOfYear = calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? Date()
+        let endOfYear = calendar.date(from: DateComponents(year: year + 1, month: 1, day: 1)) ?? Date()
+        
+        return flights.filter { flight in
+            flight.scheduledDeparture >= startOfYear && flight.scheduledDeparture < endOfYear
+        }
+    }
+    
+    private var filteredTransit: [TransitSegment] {
+        guard let year = selectedYear else { return transitSegments }
+        
+        let calendar = Calendar.current
+        let startOfYear = calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? Date()
+        let endOfYear = calendar.date(from: DateComponents(year: year + 1, month: 1, day: 1)) ?? Date()
+        
+        return transitSegments.filter { transit in
+            transit.scheduledDeparture >= startOfYear && transit.scheduledDeparture < endOfYear
+        }
+    }
+
+    // Statistics (now using filtered data)
+    private var totalFlights: Int { filteredFlights.count }
+    private var totalTransit: Int { filteredTransit.count }
+    private var totalTrips: Int { filteredFlights.count + filteredTransit.count }
 
     private var upcomingFlights: [Flight] {
-        flights.filter { $0.scheduledDeparture >= Date() }
+        filteredFlights.filter { $0.scheduledDeparture >= Date() }
     }
 
     private var pastFlights: [Flight] {
-        flights.filter { $0.scheduledDeparture < Date() }
+        filteredFlights.filter { $0.scheduledDeparture < Date() }
     }
     
     private var upcomingTransit: [TransitSegment] {
-        transitSegments.filter { $0.scheduledDeparture >= Date() }
+        filteredTransit.filter { $0.scheduledDeparture >= Date() }
     }
     
     private var pastTransit: [TransitSegment] {
-        transitSegments.filter { $0.scheduledDeparture < Date() }
+        filteredTransit.filter { $0.scheduledDeparture < Date() }
     }
 
     private var totalMiles: Int {
-        let flightMiles = flights.reduce(0) { total, flight in
+        let flightMiles = filteredFlights.reduce(0) { total, flight in
             total + calculateDistanceMiles(from: flight.origin, to: flight.destination)
         }
-        let transitMiles = transitSegments.reduce(into: 0) { total, transit in
+        let transitMiles = filteredTransit.reduce(into: 0) { total, transit in
             let originLoc = CLLocation(latitude: transit.originLatitude, longitude: transit.originLongitude)
             let destLoc = CLLocation(latitude: transit.destinationLatitude, longitude: transit.destinationLongitude)
             let meters = originLoc.distance(from: destLoc)
@@ -65,14 +110,14 @@ struct LogbookView: View {
     }
 
     private var totalHours: Int {
-        let flightMinutes = flights.compactMap { $0.durationMinutes }.reduce(0, +)
-        let transitMinutes = transitSegments.compactMap { $0.durationMinutes }.reduce(0, +)
+        let flightMinutes = filteredFlights.compactMap { $0.durationMinutes }.reduce(0, +)
+        let transitMinutes = filteredTransit.compactMap { $0.durationMinutes }.reduce(0, +)
         return (flightMinutes + transitMinutes) / 60
     }
 
     private var uniqueAirports: Int {
         var airports = Set<String>()
-        for flight in flights {
+        for flight in filteredFlights {
             airports.insert(flight.origin.iataCode)
             airports.insert(flight.destination.iataCode)
         }
@@ -80,13 +125,129 @@ struct LogbookView: View {
     }
 
     private var uniqueAirlines: Int {
-        Set(flights.map { $0.airline }).count
+        Set(filteredFlights.map { $0.airline }).count
+    }
+    
+    // MARK: - Enhanced Statistics
+    
+    private var domesticFlights: Int {
+        filteredFlights.filter { flight in
+            // Simple heuristic: domestic if origin and destination in same rough region
+            // More accurate would be country codes, but IATA doesn't always indicate country
+            let originCode = flight.origin.iataCode.prefix(1)
+            let destCode = flight.destination.iataCode.prefix(1)
+            return originCode == destCode
+        }.count
+    }
+    
+    private var internationalFlights: Int {
+        totalFlights - domesticFlights
+    }
+    
+    private var longHaulFlights: Int {
+        filteredFlights.filter { flight in
+            guard let duration = flight.durationMinutes else { return false }
+            return duration >= 360 // 6 hours or more
+        }.count
+    }
+    
+    private var shortestFlight: Flight? {
+        filteredFlights.min { ($0.durationMinutes ?? Int.max) < ($1.durationMinutes ?? Int.max) }
+    }
+    
+    private var longestFlight: Flight? {
+        filteredFlights.max { ($0.durationMinutes ?? 0) < ($1.durationMinutes ?? 0) }
+    }
+    
+    private var averageFlightDuration: Int {
+        let durations = filteredFlights.compactMap { $0.durationMinutes }
+        guard !durations.isEmpty else { return 0 }
+        return durations.reduce(0, +) / durations.count
+    }
+    
+    private var topAirlines: [(name: String, count: Int)] {
+        let grouped = Dictionary(grouping: filteredFlights, by: { $0.airline })
+        return grouped.map { (name: $0.key, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
+            .prefix(5)
+            .map { $0 }
+    }
+    
+    private var topAirports: [(code: String, name: String, count: Int)] {
+        var airportVisits: [String: (name: String, count: Int)] = [:]
+        for flight in filteredFlights {
+            let originCode = flight.origin.iataCode
+            let destCode = flight.destination.iataCode
+            airportVisits[originCode, default: (flight.origin.name, 0)].count += 1
+            airportVisits[destCode, default: (flight.destination.name, 0)].count += 1
+        }
+        return airportVisits.map { (code: $0.key, name: $0.value.name, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
+            .prefix(5)
+            .map { $0 }
+    }
+    
+    private var topRoutes: [(route: String, count: Int)] {
+        let routes = filteredFlights.map { "\($0.origin.iataCode)-\($0.destination.iataCode)" }
+        let grouped = Dictionary(grouping: routes, by: { $0 })
+        return grouped.map { (route: $0.key, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
+            .prefix(5)
+            .map { $0 }
+    }
+    
+    private var seatClassBreakdown: [(seatClass: String, count: Int)] {
+        let grouped = Dictionary(grouping: filteredFlights.compactMap { $0.seatClass }, by: { $0.rawValue })
+        return grouped.map { (seatClass: $0.key, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
+    }
+    
+    private var seatPositionBreakdown: [(position: String, count: Int)] {
+        let grouped = Dictionary(grouping: filteredFlights.compactMap { $0.seatPosition }, by: { $0.rawValue })
+        return grouped.map { (position: $0.key, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
+    }
+    
+    private var topAircraft: [(model: String, count: Int)] {
+        let grouped = Dictionary(grouping: filteredFlights.compactMap { $0.aircraftModel }, by: { $0 })
+        return grouped.map { (model: $0.key, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
+            .prefix(5)
+            .map { $0 }
+    }
+    
+    private var uniqueAircraftRegistrations: Int {
+        Set(filteredFlights.compactMap { $0.tailNumber }).count
+    }
+    
+    private var transitByType: [(type: String, count: Int, miles: Int)] {
+        let grouped = Dictionary(grouping: filteredTransit, by: { $0.transitType.rawValue })
+        return grouped.map { type, segments in
+            let miles = segments.reduce(0) { total, transit in
+                let originLoc = CLLocation(latitude: transit.originLatitude, longitude: transit.originLongitude)
+                let destLoc = CLLocation(latitude: transit.destinationLatitude, longitude: transit.destinationLongitude)
+                let meters = originLoc.distance(from: destLoc)
+                return total + Int(meters / 1609.34)
+            }
+            return (type: type, count: segments.count, miles: miles)
+        }.sorted { $0.count > $1.count }
+    }
+    
+    private var topTransitOperators: [(name: String, count: Int)] {
+        let grouped = Dictionary(grouping: filteredTransit, by: { $0.operatorName })
+        return grouped.map { (name: $0.key, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
+            .prefix(5)
+            .map { $0 }
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
+                    // Time Period Filter
+                    timePeriodPicker
+                    
                     // Hero Stats Card
                     heroCard
 
@@ -95,6 +256,24 @@ struct LogbookView: View {
 
                     // Flight Breakdown
                     flightBreakdownSection
+                    
+                    // Enhanced Statistics Sections
+                    if !filteredFlights.isEmpty {
+                        detailedFlightStatsSection
+                        topRankingsSection
+                        
+                        if !seatClassBreakdown.isEmpty || !seatPositionBreakdown.isEmpty {
+                            seatStatsSection
+                        }
+                        
+                        if !topAircraft.isEmpty {
+                            aircraftStatsSection
+                        }
+                    }
+                    
+                    if !filteredTransit.isEmpty {
+                        transitStatsSection
+                    }
 
                     // Recent Activity
                     if !pastFlights.isEmpty {
@@ -112,18 +291,36 @@ struct LogbookView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Logbook")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Label("Settings", systemImage: "gear")
+                        }
+                        
+                        Divider()
+                        
                         Button(role: .destructive) {
                             showClearDataAlert = true
                         } label: {
                             Label("Clear All Data", systemImage: "trash.fill")
                         }
 
-                        Button {
-                            exportBackup()
+                        Menu {
+                            Button {
+                                exportBackupCSV()
+                            } label: {
+                                Label("Export as CSV", systemImage: "doc.text")
+                            }
+                            
+                            Button {
+                                exportBackup()
+                            } label: {
+                                Label("Export as JSON", systemImage: "doc.badge.gearshape")
+                            }
                         } label: {
                             Label("Export Backup", systemImage: "square.and.arrow.up")
                         }
@@ -140,7 +337,7 @@ struct LogbookView: View {
                             Label("Export Debug Info", systemImage: "doc.on.doc")
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "ellipsis")
                             .font(.headline)
                     }
                 }
@@ -181,6 +378,9 @@ struct LogbookView: View {
                         importBackup(from: url, merge: importMode == .merge)
                     }
                 }
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
             }
         }
     }
@@ -256,6 +456,121 @@ struct LogbookView: View {
             importResultMessage = "Failed to export backup: \(error.localizedDescription)"
             showImportResultAlert = true
         }
+    }
+    
+    private func exportBackupCSV() {
+        do {
+            let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            
+            // Create CSV files
+            let flightsCSV = generateFlightsCSV()
+            let transitCSV = generateTransitCSV()
+            let airportsCSV = generateAirportsCSV()
+            
+            // Save to temporary directory
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("MyFlight-CSV-\(timestamp)")
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            
+            let flightsURL = tempDir.appendingPathComponent("flights.csv")
+            let transitURL = tempDir.appendingPathComponent("transit.csv")
+            let airportsURL = tempDir.appendingPathComponent("airports.csv")
+            
+            try flightsCSV.write(to: flightsURL, atomically: true, encoding: .utf8)
+            try transitCSV.write(to: transitURL, atomically: true, encoding: .utf8)
+            try airportsCSV.write(to: airportsURL, atomically: true, encoding: .utf8)
+            
+            // Share all three files
+            let activity = UIActivityViewController(
+                activityItems: [flightsURL, transitURL, airportsURL],
+                applicationActivities: nil
+            )
+            if let windowScene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+               let root = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                root.present(activity, animated: true)
+            }
+        } catch {
+            importResultMessage = "Failed to export CSV: \(error.localizedDescription)"
+            showImportResultAlert = true
+        }
+    }
+    
+    private func generateFlightsCSV() -> String {
+        var csv = "Flight Number,Airline,IATA,Origin,Destination,Scheduled Departure,Scheduled Arrival,Status,Aircraft,Tail Number,Departure Gate,Departure Terminal,Arrival Gate,Arrival Terminal,Seat Number,Seat Class,Seat Position\n"
+        
+        for flight in flights.sorted(by: { $0.scheduledDeparture < $1.scheduledDeparture }) {
+            let row = [
+                escapeCSV(flight.flightNumber),
+                escapeCSV(flight.airline),
+                escapeCSV(flight.airlineIATA ?? ""),
+                escapeCSV(flight.origin.iataCode),
+                escapeCSV(flight.destination.iataCode),
+                ISO8601DateFormatter().string(from: flight.scheduledDeparture),
+                ISO8601DateFormatter().string(from: flight.scheduledArrival ?? flight.scheduledDeparture),
+                escapeCSV(flight.flightStatus.rawValue),
+                escapeCSV(flight.aircraftModel ?? ""),
+                escapeCSV(flight.tailNumber ?? ""),
+                escapeCSV(flight.departureGate ?? ""),
+                escapeCSV(flight.departureTerminal ?? ""),
+                escapeCSV(flight.arrivalGate ?? ""),
+                escapeCSV(flight.arrivalTerminal ?? ""),
+                escapeCSV(flight.seatNumber ?? ""),
+                escapeCSV(flight.seatClass?.rawValue ?? ""),
+                escapeCSV(flight.seatPosition?.rawValue ?? "")
+            ].joined(separator: ",")
+            csv += row + "\n"
+        }
+        
+        return csv
+    }
+    
+    private func generateTransitCSV() -> String {
+        var csv = "Transit Type,Operator,Route Number,Origin,Destination,Origin Lat,Origin Lon,Dest Lat,Dest Lon,Scheduled Departure,Scheduled Arrival,Notes\n"
+        
+        for transit in transitSegments.sorted(by: { $0.scheduledDeparture < $1.scheduledDeparture }) {
+            let row = [
+                escapeCSV(transit.transitType.rawValue),
+                escapeCSV(transit.operatorName),
+                escapeCSV(transit.routeNumber),
+                escapeCSV(transit.originName),
+                escapeCSV(transit.destinationName),
+                String(transit.originLatitude),
+                String(transit.originLongitude),
+                String(transit.destinationLatitude),
+                String(transit.destinationLongitude),
+                ISO8601DateFormatter().string(from: transit.scheduledDeparture),
+                ISO8601DateFormatter().string(from: transit.scheduledArrival),
+                escapeCSV(transit.notes ?? "")
+            ].joined(separator: ",")
+            csv += row + "\n"
+        }
+        
+        return csv
+    }
+    
+    private func generateAirportsCSV() -> String {
+        var csv = "IATA Code,Name,Latitude,Longitude,Timezone\n"
+        
+        for airport in airports.sorted(by: { $0.iataCode < $1.iataCode }) {
+            let row = [
+                escapeCSV(airport.iataCode),
+                escapeCSV(airport.name),
+                String(airport.latitude),
+                String(airport.longitude),
+                escapeCSV(airport.timezone ?? "")
+            ].joined(separator: ",")
+            csv += row + "\n"
+        }
+        
+        return csv
+    }
+    
+    private func escapeCSV(_ value: String) -> String {
+        if value.contains(",") || value.contains("\"") || value.contains("\n") {
+            return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+        }
+        return value
     }
 
     private func importBackup(from url: URL, merge: Bool = false) {
@@ -493,6 +808,234 @@ struct LogbookView: View {
             self.estimatedDeparture = transit.estimatedDeparture
             self.actualDeparture = transit.actualDeparture
             self.notes = transit.notes
+        }
+    }
+
+    // MARK: - Time Period Picker
+    
+    private var timePeriodPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // All Time button
+                Button(action: { selectedYear = nil }) {
+                    Text("All Time")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(selectedYear == nil ? .white : .primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(selectedYear == nil ? Color.blue : Color(.secondarySystemGroupedBackground))
+                        .cornerRadius(6)
+                }
+                
+                // Year buttons
+                ForEach(availableYears, id: \.self) { year in
+                    Button(action: { selectedYear = year }) {
+                        Text("\(year)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(selectedYear == year ? .white : .primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(selectedYear == year ? Color.blue : Color(.secondarySystemGroupedBackground))
+                            .cornerRadius(6)
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    // MARK: - Enhanced Statistics Sections
+    
+    private var detailedFlightStatsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Flight Statistics")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .padding(.horizontal, 4)
+            
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                MiniStatCard(label: "Domestic", value: "\(domesticFlights)", icon: "house.fill", color: .blue)
+                MiniStatCard(label: "International", value: "\(internationalFlights)", icon: "airplane.departure", color: .cyan)
+                MiniStatCard(label: "Long-Haul (6h+)", value: "\(longHaulFlights)", icon: "timer", color: .orange)
+                MiniStatCard(label: "Avg Duration", value: formatMinutes(averageFlightDuration), icon: "clock.fill", color: .purple)
+            }
+            
+            if let shortest = shortestFlight {
+                HStack {
+                    Image(systemName: "speedometer")
+                        .foregroundStyle(.green)
+                    Text("Shortest: \(shortest.origin.iataCode)→\(shortest.destination.iataCode)")
+                        .font(.caption)
+                    Spacer()
+                    Text(formatMinutes(shortest.durationMinutes ?? 0))
+                        .font(.caption.bold())
+                }
+                .padding()
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+            }
+            
+            if let longest = longestFlight {
+                HStack {
+                    Image(systemName: "airplane.circle")
+                        .foregroundStyle(.indigo)
+                    Text("Longest: \(longest.origin.iataCode)→\(longest.destination.iataCode)")
+                        .font(.caption)
+                    Spacer()
+                    Text(formatMinutes(longest.durationMinutes ?? 0))
+                        .font(.caption.bold())
+                }
+                .padding()
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+    
+    private var topRankingsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Top Rankings")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .padding(.horizontal, 4)
+            
+            // Top Airlines
+            if !topAirlines.isEmpty {
+                RankingCard(title: "Airlines", icon: "airplane.circle", items: topAirlines.map { "\($0.name) (\($0.count))" })
+            }
+            
+            // Top Airports
+            if !topAirports.isEmpty {
+                RankingCard(title: "Airports", icon: "building.2", items: topAirports.map { "\($0.code) - \($0.name) (\($0.count))" })
+            }
+            
+            // Top Routes
+            if !topRoutes.isEmpty {
+                RankingCard(title: "Routes", icon: "arrow.left.and.right", items: topRoutes.map { "\($0.route) (\($0.count))" })
+            }
+        }
+    }
+    
+    private var seatStatsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Seat Preferences")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .padding(.horizontal, 4)
+            
+            if !seatClassBreakdown.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Class")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.secondary)
+                    
+                    ForEach(seatClassBreakdown, id: \.seatClass) { item in
+                        HStack {
+                            Text(item.seatClass)
+                            Spacer()
+                            Text("\(item.count)")
+                                .fontWeight(.semibold)
+                            Text("(\(Int(Double(item.count) / Double(totalFlights) * 100))%)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding()
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+            
+            if !seatPositionBreakdown.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Position")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.secondary)
+                    
+                    ForEach(seatPositionBreakdown, id: \.position) { item in
+                        HStack {
+                            Text(item.position)
+                            Spacer()
+                            Text("\(item.count)")
+                                .fontWeight(.semibold)
+                            Text("(\(Int(Double(item.count) / Double(totalFlights) * 100))%)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding()
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+    
+    private var aircraftStatsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Aircraft")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .padding(.horizontal, 4)
+            
+            HStack {
+                MiniStatCard(label: "Unique Types", value: "\(topAircraft.count)", icon: "airplane", color: .blue)
+                MiniStatCard(label: "Unique Tails", value: "\(uniqueAircraftRegistrations)", icon: "number", color: .cyan)
+            }
+            
+            if !topAircraft.isEmpty {
+                RankingCard(title: "Most Flown Aircraft", icon: "airplane", items: topAircraft.map { "\($0.model) (\($0.count))" })
+            }
+        }
+    }
+    
+    private var transitStatsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Transit Statistics")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .padding(.horizontal, 4)
+            
+            ForEach(transitByType, id: \.type) { item in
+                HStack {
+                    Image(systemName: transitIcon(for: item.type))
+                        .foregroundStyle(transitColor(for: item.type))
+                    Text(item.type)
+                        .fontWeight(.medium)
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(item.count) trips")
+                            .font(.caption.bold())
+                        Text("\(item.miles) miles")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding()
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+            
+            if !topTransitOperators.isEmpty {
+                RankingCard(title: "Top Operators", icon: "bus.fill", items: topTransitOperators.map { "\($0.name) (\($0.count))" })
+            }
+        }
+    }
+    
+    private func formatMinutes(_ minutes: Int) -> String {
+        let hours = minutes / 60
+        let mins = minutes % 60
+        if hours > 0 {
+            return mins > 0 ? "\(hours)h \(mins)m" : "\(hours)h"
+        }
+        return "\(mins)m"
+    }
+    
+    private func transitIcon(for type: String) -> String {
+        switch type.lowercased() {
+        case "bus": return "bus.fill"
+        case "ferry": return "ferry.fill"
+        case "train": return "tram.fill"
+        default: return "mappin.circle"
+        }
+    }
+    
+    private func transitColor(for type: String) -> Color {
+        switch type.lowercased() {
+        case "bus": return .orange
+        case "ferry": return .teal
+        case "train": return .purple
+        default: return .gray
         }
     }
 
@@ -846,6 +1389,71 @@ struct BreakdownRow: View {
     }
 }
 
+// MARK: - Mini Stat Card
+
+struct MiniStatCard: View {
+    let label: String
+    let value: String
+    let icon: String
+    let color: Color
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(color)
+            
+            Text(value)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+            
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Ranking Card
+
+struct RankingCard: View {
+    let title: String
+    let icon: String
+    let items: [String]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundStyle(.blue)
+                Text(title)
+                    .font(.subheadline.bold())
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    HStack {
+                        Text("#\(index + 1)")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 25, alignment: .leading)
+                        Text(item)
+                            .font(.caption)
+                        Spacer()
+                    }
+                    if index < items.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
 // MARK: - Recent Flight Row
 
 struct RecentFlightRow: View {
@@ -983,6 +1591,26 @@ private struct DocumentPickerView: UIViewControllerRepresentable {
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             onPick(nil)
         }
+    }
+}
+
+// MARK: - LogbookSheetView for Pull-up Sheet Presentation
+
+struct LogbookSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        LogbookView()
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
     }
 }
 
