@@ -243,66 +243,28 @@ struct LogbookView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Time Period Filter
-                    timePeriodPicker
+            VStack(spacing: 0) {
+                // Custom header with centered title and menu button (like FlightDetailView)
+                HStack(spacing: 12) {
+                    // Empty spacer for balance
+                    Color.clear
+                        .frame(width: 36, height: 36)
                     
-                    // Hero Stats Card
-                    heroCard
-
-                    // Quick Stats Grid
-                    quickStatsGrid
-
-                    // Flight Breakdown
-                    flightBreakdownSection
+                    Text("Logbook")
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .center)
                     
-                    // Enhanced Statistics Sections
-                    if !filteredFlights.isEmpty {
-                        detailedFlightStatsSection
-                        topRankingsSection
-                        
-                        if !seatClassBreakdown.isEmpty || !seatPositionBreakdown.isEmpty {
-                            seatStatsSection
-                        }
-                        
-                        if !topAircraft.isEmpty {
-                            aircraftStatsSection
-                        }
-                    }
-                    
-                    if !filteredTransit.isEmpty {
-                        transitStatsSection
-                    }
-
-                    // Recent Activity
-                    if !pastFlights.isEmpty {
-                        recentActivitySection
-                    }
-
-                    // Upcoming Section
-                    if !upcomingFlights.isEmpty {
-                        upcomingSection
-                    }
-
-                    Spacer(minLength: 100)
-                }
-                .padding()
-            }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Logbook")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                    // 3-dot menu - matches FlightDetailView style
                     Menu {
                         Button {
                             showSettings = true
                         } label: {
                             Label("Settings", systemImage: "gear")
                         }
-                        
+
                         Divider()
-                        
+
                         Button(role: .destructive) {
                             showClearDataAlert = true
                         } label: {
@@ -329,10 +291,65 @@ struct LogbookView: View {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(.blue)
+                            .frame(width: 36, height: 36)
                     }
+                    .foregroundStyle(.blue)
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 16)
+                .background(Color(.systemGroupedBackground))
+                
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Time Period Filter
+                        timePeriodPicker
+                        
+                        // Hero Stats Card
+                        heroCard
+
+                        // Quick Stats Grid
+                        quickStatsGrid
+
+                        // Flight Breakdown
+                        flightBreakdownSection
+                        
+                        // Enhanced Statistics Sections
+                        if !filteredFlights.isEmpty {
+                            detailedFlightStatsSection
+                            topRankingsSection
+                            
+                            if !seatClassBreakdown.isEmpty || !seatPositionBreakdown.isEmpty {
+                                seatStatsSection
+                            }
+                            
+                            if !topAircraft.isEmpty {
+                                aircraftStatsSection
+                            }
+                        }
+                        
+                        if !filteredTransit.isEmpty {
+                            transitStatsSection
+                        }
+
+                        // Recent Activity
+                        if !pastFlights.isEmpty {
+                            recentActivitySection
+                        }
+
+                        // Upcoming Section
+                        if !upcomingFlights.isEmpty {
+                            upcomingSection
+                        }
+
+                        Spacer(minLength: 100)
+                    }
+                    .padding()
+                }
+                .background(Color(.systemGroupedBackground))
             }
+            .background(Color(.systemGroupedBackground))
+            .navigationBarHidden(true)
             .alert("Clear All Data?", isPresented: $showClearDataAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear Everything", role: .destructive) {

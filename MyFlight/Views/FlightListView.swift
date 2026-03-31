@@ -401,8 +401,8 @@ struct FlightProgressLine: View {
         if isInFlight {
             return LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing)
         }
-        if status == .arrived {
-            return LinearGradient(colors: isDelayed ? [.orange, .red] : [.green, .green.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
+        if status == .arrived || status == .arrivedLate {
+            return LinearGradient(colors: (isDelayed || status == .arrivedLate) ? [.orange, .red] : [.green, .green.opacity(0.8)], startPoint: .leading, endPoint: .trailing)
         }
         if status == .departed || status == .enRoute {
             return LinearGradient(colors: [.blue.opacity(0.6), .blue.opacity(0.3)], startPoint: .leading, endPoint: .trailing)

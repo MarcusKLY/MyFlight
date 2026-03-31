@@ -1021,6 +1021,21 @@ struct FlightDetailView: View {
         .cornerRadius(14)
         .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
         .frame(maxWidth: .infinity, alignment: .center)
+        .overlay(alignment: .bottomTrailing) {
+            // "Tap to flip" hint
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 10, weight: .medium))
+                Text("Tap to flip")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+            .padding(8)
+            .opacity(isFlipped ? 0 : 1)
+        }
         .rotation3DEffect(
             .degrees(isFlipped ? 180 : 0),
             axis: (x: 0, y: 1, z: 0),

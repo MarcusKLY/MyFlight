@@ -160,6 +160,9 @@ enum FlightLookupService {
         let predictedArr = parseAeroDate(selected.arrival?.predictedTime?.utc)
         let runwayArr = parseAeroDate(selected.arrival?.runwayTime?.utc)
         let actualArr = parseAeroDate(selected.arrival?.actualTime?.utc)
+
+        // Fallback: if scheduledArr is nil, use predictedArr or estimatedArr as the scheduled arrival
+        let effectiveScheduledArr = scheduledArr ?? predictedArr ?? estimatedArr
         let aircraftImageUrl = selected.aircraft?.image?.url
         async let aircraftExtraInfo = fetchAircraftExtraInfoIfAvailable(
             apiKeys: rapidAPIKeys,
@@ -231,7 +234,7 @@ enum FlightLookupService {
             revisedArrival: revisedArr,
             estimatedArrival: estimatedArr,
             predictedArrival: predictedArr,
-            scheduledArrival: scheduledArr,
+            scheduledArrival: effectiveScheduledArr,
             actualArrival: actualArr,
             departureGate: selected.departure?.gate,
             departureTerminal: selected.departure?.terminal,

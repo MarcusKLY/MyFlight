@@ -404,16 +404,10 @@ struct LocationSearchSheet: View {
 
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
-
-        // Bias results toward transit-related points of interest
-        switch transitType {
-        case .bus:
-            request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.publicTransport])
-        case .ferry:
-            request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.marina, .publicTransport])
-        case .train:
-            request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.publicTransport])
-        }
+        
+        // Don't restrict to POI categories - allow searching for any location
+        // Users may want to search for cities, addresses, landmarks, etc.
+        request.resultTypes = [.address, .pointOfInterest]
 
         do {
             let search = MKLocalSearch(request: request)

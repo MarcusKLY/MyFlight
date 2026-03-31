@@ -341,7 +341,10 @@ struct LiveMapTab: View {
                         distanceMiles: draft.distanceMiles,
                         callSign: draft.callSign,
                         flightStatus: draft.flightStatus,
-                        aircraftRegistrationDate: draft.aircraftRegistrationDate
+                        aircraftRegistrationDate: draft.aircraftRegistrationDate,
+                        seatNumber: draft.seatNumber,
+                        seatClass: draft.seatClass,
+                        seatPosition: draft.seatPosition
                     )
                     modelContext.insert(flight)
                     try? modelContext.save()
@@ -1710,7 +1713,10 @@ private struct AddFlightSheet: View {
             distanceNm: result.distanceNm,
             distanceMiles: result.distanceMiles,
             callSign: result.callSign,
-            flightStatus: result.status
+            flightStatus: result.status,
+            seatNumber: nil,  // Seat info not from API
+            seatClass: nil,
+            seatPosition: nil
         ))
         dismiss()
     }
@@ -1940,13 +1946,42 @@ private struct ManualFlightEntrySheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    // Basic flight info
     @State private var flightNumber: String
     @State private var airline = ""
+    @State private var airlineIATA: String?  // For airline logo
     @State private var originCode = ""
     @State private var destinationCode = ""
     @State private var scheduledDeparture: Date
     @State private var scheduledArrival: Date?
+    
+    // Aircraft info (optional)
+    @State private var aircraftModel = ""
+    @State private var tailNumber = ""
+    @State private var aircraftImageUrl: String?  // For aircraft photo
+    
+    // Seat info (optional)
+    @State private var seatNumber = ""
+    @State private var seatClass: SeatClass?
+    @State private var seatPosition: SeatPosition?
+    
+    // Terminal & Gate info (optional)
+    @State private var departureTerminal = ""
+    @State private var departureGate = ""
+    @State private var arrivalTerminal = ""
+    @State private var arrivalGate = ""
+    
+    // Distance info (from API)
+    @State private var distanceKm: Double?
+    @State private var distanceNm: Double?
+    @State private var distanceMiles: Double?
+    
+    // UI state
     @State private var validationMessage: String?
+    @State private var showOriginSuggestions = false
+    @State private var showDestinationSuggestions = false
+    @State private var isAutoFilling = false
+    @State private var autoFillSource: String?
 
     init(airports: [Airport], existingFlights: [Flight], initialFlightNumber: String, initialDate: Date, onSave: @escaping (FlightDraft) -> Void) {
         self.airports = airports
@@ -1966,6 +2001,18 @@ private struct ManualFlightEntrySheet: View {
         originCode.uppercased() != destinationCode.uppercased()
     }
 
+    private var originSuggestions: [AirportInfo] {
+        let query = originCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        return AirportDatabase.shared.search(query: query)
+    }
+
+    private var destinationSuggestions: [AirportInfo] {
+        let query = destinationCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        return AirportDatabase.shared.search(query: query)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -1976,14 +2023,194 @@ private struct ManualFlightEntrySheet: View {
                 }
 
                 Section("Route") {
-                    TextField("Origin (e.g. HKG)", text: $originCode)
-                        .textInputAutocapitalization(.characters)
-                    TextField("Destination (e.g. LAX)", text: $destinationCode)
-                        .textInputAutocapitalization(.characters)
+                    VStack(alignment: .leading, spacing: 0) {
+                        TextField("Origin (e.g. HKG)", text: $originCode)
+                            .textInputAutocapitalization(.characters)
+                            .onChange(of: originCode) { _, newValue in
+                                showOriginSuggestions = newValue.count > 0 && newValue.count < 3
+                            }
+
+                        if showOriginSuggestions && !originSuggestions.isEmpty {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(originSuggestions, id: \.id) { airport in
+                                    Button {
+                                        originCode = airport.iata
+                                        showOriginSuggestions = false
+                                    } label: {
+                                        HStack {
+                                            Text(airport.iata)
+                                                .font(.system(size: 14, weight: .bold))
+                                                .foregroundColor(.primary)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(airport.name)
+                                                    .font(.system(size: 13, weight: .medium))
+                                                    .foregroundColor(.primary)
+                                                Text("\(airport.city), \(airport.country)")
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            Spacer()
+                                        }
+                                        .padding(.vertical, 8)
+                                        .padding(.horizontal, 12)
+                                        .background(Color(.systemGray6))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if airport.id != originSuggestions.last?.id {
+                                        Divider()
+                                    }
+                                }
+                            }
+                            .background(Color(.systemGray6))
+                            .cornerRadius(8)
+                            .padding(.top, 4)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        TextField("Destination (e.g. LAX)", text: $destinationCode)
+                            .textInputAutocapitalization(.characters)
+                            .onChange(of: destinationCode) { _, newValue in
+                                showDestinationSuggestions = newValue.count > 0 && newValue.count < 3
+                            }
+
+                        if showDestinationSuggestions && !destinationSuggestions.isEmpty {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(destinationSuggestions, id: \.id) { airport in
+                                    Button {
+                                        destinationCode = airport.iata
+                                        showDestinationSuggestions = false
+                                    } label: {
+                                        HStack {
+                                            Text(airport.iata)
+                                                .font(.system(size: 14, weight: .bold))
+                                                .foregroundColor(.primary)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(airport.name)
+                                                    .font(.system(size: 13, weight: .medium))
+                                                    .foregroundColor(.primary)
+                                                Text("\(airport.city), \(airport.country)")
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            Spacer()
+                                        }
+                                        .padding(.vertical, 8)
+                                        .padding(.horizontal, 12)
+                                        .background(Color(.systemGray6))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if airport.id != destinationSuggestions.last?.id {
+                                        Divider()
+                                    }
+                                }
+                            }
+                            .background(Color(.systemGray6))
+                            .cornerRadius(8)
+                            .padding(.top, 4)
+                        }
+                    }
                 }
 
                 Section("Schedule") {
                     DatePicker("Departure", selection: $scheduledDeparture)
+                    
+                    // Arrival date picker with optional binding
+                    HStack {
+                        Text("Arrival")
+                        Spacer()
+                        if let arrival = scheduledArrival {
+                            DatePicker("", selection: Binding(
+                                get: { arrival },
+                                set: { scheduledArrival = $0 }
+                            ))
+                            .labelsHidden()
+                            
+                            Button {
+                                scheduledArrival = nil
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Button("Add") {
+                                // Default to 2 hours after departure
+                                scheduledArrival = scheduledDeparture.addingTimeInterval(2 * 3600)
+                            }
+                            .foregroundStyle(.blue)
+                        }
+                    }
+                }
+                
+                Section("Aircraft (Optional)") {
+                    TextField("Model (e.g. Airbus A350-900)", text: $aircraftModel)
+                    TextField("Registration (e.g. B-LRA)", text: $tailNumber)
+                        .textInputAutocapitalization(.characters)
+                }
+                
+                Section("Seat (Optional)") {
+                    TextField("Seat Number (e.g. 12A)", text: $seatNumber)
+                        .textInputAutocapitalization(.characters)
+                    
+                    Picker("Class", selection: $seatClass) {
+                        Text("Not Set").tag(SeatClass?.none)
+                        ForEach(SeatClass.allCases, id: \.self) { seatClass in
+                            Text(seatClass.rawValue).tag(SeatClass?.some(seatClass))
+                        }
+                    }
+                    
+                    Picker("Position", selection: $seatPosition) {
+                        Text("Not Set").tag(SeatPosition?.none)
+                        ForEach(SeatPosition.allCases, id: \.self) { position in
+                            Text(position.rawValue).tag(SeatPosition?.some(position))
+                        }
+                    }
+                }
+                
+                Section("Terminal & Gate (Optional)") {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("Departure")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            HStack {
+                                TextField("Terminal", text: $departureTerminal)
+                                    .frame(maxWidth: 80)
+                                TextField("Gate", text: $departureGate)
+                                    .frame(maxWidth: 80)
+                            }
+                        }
+                    }
+                    
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("Arrival")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            HStack {
+                                TextField("Terminal", text: $arrivalTerminal)
+                                    .frame(maxWidth: 80)
+                                TextField("Gate", text: $arrivalGate)
+                                    .frame(maxWidth: 80)
+                            }
+                        }
+                    }
+                }
+                
+                // Auto-fill feedback
+                if let source = autoFillSource {
+                    Section {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text(source)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
             .navigationTitle("Manual Entry")
@@ -1994,15 +2221,21 @@ private struct ManualFlightEntrySheet: View {
                 }
                 ToolbarItem(placement: .principal) {
                     Button {
-                        autoFillFromExisting()
+                        Task { await autoFillFromAPI() }
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "wand.and.stars")
+                            if isAutoFilling {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "wand.and.stars")
+                            }
                             Text("Auto-fill")
                         }
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.blue)
                     }
+                    .disabled(isAutoFilling || flightNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
@@ -2020,27 +2253,132 @@ private struct ManualFlightEntrySheet: View {
         }
     }
     
-    private func autoFillFromExisting() {
+    private func autoFillFromAPI() async {
         let normalized = flightNumber.trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
             .replacingOccurrences(of: " ", with: "")
         
-        guard let existingFlight = existingFlights.first(where: { flight in
-            flight.flightNumber.uppercased().replacingOccurrences(of: " ", with: "") == normalized
-        }) else {
-            validationMessage = "No existing flight found with number \(flightNumber)"
+        guard !normalized.isEmpty else {
+            validationMessage = "Please enter a flight number first"
             return
         }
         
-        // Auto-fill fields from existing flight
-        airline = existingFlight.airline
-        originCode = existingFlight.origin.iataCode
-        destinationCode = existingFlight.destination.iataCode
+        isAutoFilling = true
+        autoFillSource = nil
         
-        // Keep the current selected date but use similar duration
-        if let existingArrival = existingFlight.scheduledArrival {
-            let duration = existingArrival.timeIntervalSince(existingFlight.scheduledDeparture)
-            scheduledArrival = scheduledDeparture.addingTimeInterval(duration)
+        // Try API lookup with recent dates (yesterday, today, 2 days ago)
+        let datesToTry = [
+            Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date(),  // Yesterday
+            Date(),  // Today
+            Calendar.current.date(byAdding: .day, value: -2, to: Date()) ?? Date(),  // 2 days ago
+            Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()   // Tomorrow
+        ]
+        
+        for dateToTry in datesToTry {
+            do {
+                let result = try await FlightLookupService.lookup(flightNumber: normalized, date: dateToTry)
+                
+                // Success! Populate fields from API result
+                await MainActor.run {
+                    airline = result.airline
+                    airlineIATA = result.airlineIATA
+                    originCode = result.originIATACode
+                    destinationCode = result.destinationIATACode
+                    
+                    // Calculate duration from API result and apply to user's selected date
+                    if let apiArrival = result.scheduledArrival {
+                        let duration = apiArrival.timeIntervalSince(result.scheduledDeparture)
+                        scheduledArrival = scheduledDeparture.addingTimeInterval(duration)
+                    }
+                    
+                    // Populate optional fields
+                    if let model = result.aircraftModel, !model.isEmpty {
+                        aircraftModel = model
+                    }
+                    if let tail = result.tailNumber, !tail.isEmpty {
+                        tailNumber = tail
+                    }
+                    if let imageUrl = result.aircraftImageUrl, !imageUrl.isEmpty {
+                        aircraftImageUrl = imageUrl
+                    }
+                    if let depTerminal = result.departureTerminal, !depTerminal.isEmpty {
+                        departureTerminal = depTerminal
+                    }
+                    if let depGate = result.departureGate, !depGate.isEmpty {
+                        departureGate = depGate
+                    }
+                    if let arrTerminal = result.arrivalTerminal, !arrTerminal.isEmpty {
+                        arrivalTerminal = arrTerminal
+                    }
+                    if let arrGate = result.arrivalGate, !arrGate.isEmpty {
+                        arrivalGate = arrGate
+                    }
+                    
+                    // Distance info
+                    distanceKm = result.distanceKm
+                    distanceNm = result.distanceNm
+                    distanceMiles = result.distanceMiles
+                    
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "MMM d"
+                    autoFillSource = "Auto-filled from \(dateFormatter.string(from: dateToTry)) flight data"
+                    isAutoFilling = false
+                }
+                return
+            } catch {
+                // Continue to next date
+                continue
+            }
+        }
+        
+        // API failed for all dates, fall back to existing flights
+        await MainActor.run {
+            if let existingFlight = existingFlights.first(where: { flight in
+                flight.flightNumber.uppercased().replacingOccurrences(of: " ", with: "") == normalized
+            }) {
+                airline = existingFlight.airline
+                airlineIATA = existingFlight.airlineIATA
+                originCode = existingFlight.origin.iataCode
+                destinationCode = existingFlight.destination.iataCode
+                
+                if let existingArrival = existingFlight.scheduledArrival {
+                    let duration = existingArrival.timeIntervalSince(existingFlight.scheduledDeparture)
+                    scheduledArrival = scheduledDeparture.addingTimeInterval(duration)
+                }
+                
+                // Populate optional fields from existing flight
+                if let model = existingFlight.aircraftModel, !model.isEmpty {
+                    aircraftModel = model
+                }
+                if let tail = existingFlight.tailNumber, !tail.isEmpty {
+                    tailNumber = tail
+                }
+                if let imageUrl = existingFlight.aircraftImageUrl, !imageUrl.isEmpty {
+                    aircraftImageUrl = imageUrl
+                }
+                if let depTerminal = existingFlight.departureTerminal, !depTerminal.isEmpty {
+                    departureTerminal = depTerminal
+                }
+                if let depGate = existingFlight.departureGate, !depGate.isEmpty {
+                    departureGate = depGate
+                }
+                if let arrTerminal = existingFlight.arrivalTerminal, !arrTerminal.isEmpty {
+                    arrivalTerminal = arrTerminal
+                }
+                if let arrGate = existingFlight.arrivalGate, !arrGate.isEmpty {
+                    arrivalGate = arrGate
+                }
+                
+                // Distance info
+                distanceKm = existingFlight.distanceKm
+                distanceNm = existingFlight.distanceNm
+                distanceMiles = existingFlight.distanceMiles
+                
+                autoFillSource = "Auto-filled from previous \(existingFlight.flightNumber) flight"
+            } else {
+                validationMessage = "Could not find flight data. Try entering details manually."
+            }
+            isAutoFilling = false
         }
     }
 
@@ -2058,20 +2396,30 @@ private struct ManualFlightEntrySheet: View {
             return
         }
 
+        // Try to find an existing flight with the same route to pull additional data from
+        let similarFlight = existingFlights.first { flight in
+            flight.origin.iataCode.uppercased() == normalizedOrigin &&
+            flight.destination.iataCode.uppercased() == normalizedDest
+        }
+        
+        // Look up airport info from database for coordinates
+        let originAirport = AirportDatabase.shared.airport(byIATA: normalizedOrigin)
+        let destAirport = AirportDatabase.shared.airport(byIATA: normalizedDest)
+
         onSave(FlightDraft(
             flightNumber: flightNumber.trimmingCharacters(in: .whitespacesAndNewlines),
             airline: airline.trimmingCharacters(in: .whitespacesAndNewlines),
-            airlineIATA: nil,
+            airlineIATA: airlineIATA ?? similarFlight?.airlineIATA,
             originCode: normalizedOrigin,
             destinationCode: normalizedDest,
-            originName: nil,
-            destinationName: nil,
-            originLatitude: nil,
-            originLongitude: nil,
-            destinationLatitude: nil,
-            destinationLongitude: nil,
-            originTimezone: nil,
-            destinationTimezone: nil,
+            originName: originAirport?.name ?? similarFlight?.origin.name,
+            destinationName: destAirport?.name ?? similarFlight?.destination.name,
+            originLatitude: originAirport?.lat ?? similarFlight?.origin.latitude,
+            originLongitude: originAirport?.lon ?? similarFlight?.origin.longitude,
+            destinationLatitude: destAirport?.lat ?? similarFlight?.destination.latitude,
+            destinationLongitude: destAirport?.lon ?? similarFlight?.destination.longitude,
+            originTimezone: originAirport?.tz ?? similarFlight?.origin.timezone,
+            destinationTimezone: destAirport?.tz ?? similarFlight?.destination.timezone,
             scheduledDeparture: scheduledDeparture,
             revisedDeparture: nil,
             estimatedDeparture: nil,
@@ -2083,33 +2431,38 @@ private struct ManualFlightEntrySheet: View {
             predictedArrival: nil,
             scheduledArrival: scheduledArrival,
             actualArrival: nil,
-            departureGate: nil,
-            departureTerminal: nil,
-            departureRunway: nil,
-            departureCheckInDesk: nil,
-            arrivalGate: nil,
-            arrivalTerminal: nil,
-            arrivalRunway: nil,
-            baggageClaim: nil,
-            aircraftModel: nil,
-            aircraftImageUrl: nil,
-            aircraftAge: nil,
-            aircraftTypeName: nil,
-            aircraftModelCode: nil,
-            aircraftSeatCount: nil,
-            aircraftEngineCount: nil,
-            aircraftEngineType: nil,
-            aircraftIsActive: nil,
-            aircraftIsFreighter: nil,
-            aircraftDataVerified: nil,
-            aircraftManufacturedYear: nil,
-            aircraftRegistrationDate: nil,
-            tailNumber: nil,
-            distanceKm: nil,
-            distanceNm: nil,
-            distanceMiles: nil,
+            // Use manually entered values, fall back to similarFlight
+            departureGate: departureGate.isEmpty ? similarFlight?.departureGate : departureGate,
+            departureTerminal: departureTerminal.isEmpty ? similarFlight?.departureTerminal : departureTerminal,
+            departureRunway: similarFlight?.departureRunway,
+            departureCheckInDesk: similarFlight?.departureCheckInDesk,
+            arrivalGate: arrivalGate.isEmpty ? similarFlight?.arrivalGate : arrivalGate,
+            arrivalTerminal: arrivalTerminal.isEmpty ? similarFlight?.arrivalTerminal : arrivalTerminal,
+            arrivalRunway: similarFlight?.arrivalRunway,
+            baggageClaim: similarFlight?.baggageClaim,
+            aircraftModel: aircraftModel.isEmpty ? similarFlight?.aircraftModel : aircraftModel,
+            aircraftImageUrl: aircraftImageUrl ?? similarFlight?.aircraftImageUrl,
+            aircraftAge: similarFlight?.aircraftAge,
+            aircraftTypeName: similarFlight?.aircraftTypeName,
+            aircraftModelCode: similarFlight?.aircraftModelCode,
+            aircraftSeatCount: similarFlight?.aircraftSeatCount,
+            aircraftEngineCount: similarFlight?.aircraftEngineCount,
+            aircraftEngineType: similarFlight?.aircraftEngineType,
+            aircraftIsActive: similarFlight?.aircraftIsActive,
+            aircraftIsFreighter: similarFlight?.aircraftIsFreighter,
+            aircraftDataVerified: similarFlight?.aircraftDataVerified,
+            aircraftManufacturedYear: similarFlight?.aircraftManufacturedYear,
+            aircraftRegistrationDate: similarFlight?.aircraftRegistrationDate,
+            tailNumber: tailNumber.isEmpty ? nil : tailNumber,
+            distanceKm: distanceKm ?? similarFlight?.distanceKm,
+            distanceNm: distanceNm ?? similarFlight?.distanceNm,
+            distanceMiles: distanceMiles ?? similarFlight?.distanceMiles,
             callSign: nil,
-            flightStatus: .onTime
+            flightStatus: .onTime,
+            // New seat fields
+            seatNumber: seatNumber.isEmpty ? nil : seatNumber,
+            seatClass: seatClass,
+            seatPosition: seatPosition
         ))
         dismiss()
     }
@@ -2169,6 +2522,10 @@ private struct FlightDraft {
     let distanceMiles: Double?
     let callSign: String?
     let flightStatus: FlightStatus
+    // Seat info
+    let seatNumber: String?
+    let seatClass: SeatClass?
+    let seatPosition: SeatPosition?
 }
 
 // MARK: - Extensions

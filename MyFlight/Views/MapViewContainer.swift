@@ -60,20 +60,7 @@ struct MapViewContainer: View {
 
                     let isSelected = selectedFlight?.id == flight.id
                     let selectedColor = colorFromString(flightColorSelected)
-                    
-                    // Status-based color for routes
-                    let statusColor: Color = {
-                        switch flight.computedFlightStatus {
-                        case .arrived:
-                            return .green
-                        case .arrivedLate:
-                            return .orange
-                        case .enRoute:
-                            return .cyan
-                        default:
-                            return colorFromString(flightColorUnselected)
-                        }
-                    }()
+                    let unselectedColor = colorFromString(flightColorUnselected)
 
                     // Highlighted route for selected flight - solid line
                     if isSelected {
@@ -90,12 +77,12 @@ struct MapViewContainer: View {
                                 lineWidth: CGFloat(lineThickness)
                             )
                     } else {
-                        // Unselected routes - use status-based color with user opacity
+                        // Unselected routes - use consistent color regardless of status
                         MapPolyline(coordinates: pathCoordinates)
                             .stroke(
                                 colorScheme == .light ? 
-                                    statusColor.opacity(lineOpacity) : 
-                                    statusColor.opacity(lineOpacity * 0.6),
+                                    unselectedColor.opacity(lineOpacity) : 
+                                    unselectedColor.opacity(lineOpacity * 0.6),
                                 style: strokeStyle
                             )
                     }
@@ -170,17 +157,17 @@ struct MapViewContainer: View {
                             )
                         }
                     } else if showTransitDots {
-                        // Small dot for unselected transit origin - match flight dot size
-                        let dotSize: CGFloat = 5  // Smaller than flight dots for visual hierarchy
+                        // Small dot for unselected transit origin - smaller and matching outer ring
+                        let dotSize: CGFloat = 4
                         Annotation("", coordinate: transit.originCoordinate) {
                             Circle()
                                 .fill(transitColor.opacity(0.7))
                                 .frame(width: dotSize, height: dotSize)
                                 .overlay(
                                     Circle()
-                                        .stroke(Color.white, lineWidth: 1.5)
+                                        .stroke(transitColor.opacity(0.5), lineWidth: 1)
                                 )
-                                .shadow(color: Color.black.opacity(0.15), radius: 1)
+                                .shadow(color: Color.black.opacity(0.1), radius: 0.5)
                         }
                     }
 
@@ -196,17 +183,17 @@ struct MapViewContainer: View {
                             )
                         }
                     } else if showTransitDots {
-                        // Small dot for unselected transit destination - match flight dot size
-                        let dotSize: CGFloat = 5  // Smaller than flight dots for visual hierarchy
+                        // Small dot for unselected transit destination - smaller and matching outer ring
+                        let dotSize: CGFloat = 4
                         Annotation("", coordinate: transit.destinationCoordinate) {
                             Circle()
                                 .fill(transitColor.opacity(0.7))
                                 .frame(width: dotSize, height: dotSize)
                                 .overlay(
                                     Circle()
-                                        .stroke(Color.white, lineWidth: 1.5)
+                                        .stroke(transitColor.opacity(0.5), lineWidth: 1)
                                 )
-                                .shadow(color: Color.black.opacity(0.15), radius: 1)
+                                .shadow(color: Color.black.opacity(0.1), radius: 0.5)
                         }
                     }
                 }
@@ -301,12 +288,12 @@ struct AirportMarker: View {
     let selectedFlightDestCode: String?
 
     var dotSize: Double {
-        // Scale dot size based on visit count: 6-12pt (reduced from 8-16pt)
+        // Scale dot size based on visit count: 4-8pt (smaller and more subtle)
         if let airport = airport {
-            let size = min(12, 6 + Double(airport.visitCount) * 1.0)
+            let size = min(8, 4 + Double(airport.visitCount) * 0.5)
             return size
         }
-        return 6
+        return 4
     }
 
     private var isPartOfSelectedFlight: Bool {
@@ -339,10 +326,10 @@ struct AirportMarker: View {
                     .frame(width: dotSize, height: dotSize)
                     .overlay(
                         Circle()
-                            .stroke(Color.white, lineWidth: 1.5)
+                            .stroke(Color.gray.opacity(0.5), lineWidth: 1)
                             .frame(width: dotSize, height: dotSize)
                     )
-                    .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
+                    .shadow(color: Color.black.opacity(0.1), radius: 0.5, x: 0, y: 0)
             }
         }
     }

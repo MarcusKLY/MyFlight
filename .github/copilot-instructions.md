@@ -360,6 +360,53 @@ var body: some View {
 }
 ```
 
+### ❌ Don't use `.toolbar` in sheets for clean button styling
+```swift
+// Bad: Toolbar items in sheets get default backgrounds that can't be removed
+.toolbar {
+    ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+            // menu items
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .buttonStyle(.plain)  // Won't remove toolbar background
+    }
+}
+```
+
+### ✅ Use custom HStack headers in sheets
+```swift
+// Good: Custom header gives full control over button styling
+VStack(spacing: 0) {
+    HStack(spacing: 12) {
+        Color.clear.frame(width: 36, height: 36)  // Balance spacer
+        
+        Text("Title")
+            .font(.system(size: 20, weight: .semibold))
+            .frame(maxWidth: .infinity, alignment: .center)
+        
+        Menu {
+            // menu items
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 36, height: 36)
+        }
+        .foregroundStyle(.blue)
+    }
+    .padding(.horizontal, 20)
+    .padding(.top, 18)
+    .padding(.bottom, 16)
+    .background(Color(.systemGroupedBackground))
+    
+    ScrollView { /* content */ }
+}
+.navigationBarHidden(true)
+```
+
+**Why**: iOS applies default button backgrounds to toolbar items when rendered inside sheets. Using a custom header bypasses this styling context entirely.
+
 ## Data Pipeline
 
 1. User enters flight number + date
